@@ -1,0 +1,141 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava
+> Task :core:processResources NO-SOURCE
+> Task :core:classes
+> Task :core:compileRegressionJava
+> Task :core:processRegressionResources NO-SOURCE
+> Task :core:regressionClasses
+
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+> Task :core:cwAuditStateTest
+PASS 67 audit state checks
+
+> Task :core:cwAutoCloseTest
+PASS 5 CN CW auto-close checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+> Task :core:cwCalculationStateTest
+PASS 30 calculation-state checks
+
+> Task :core:cwCompletenessTest
+PASS 26 completeness checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+> Task :core:cwCursorPathTest
+PASS 254 semantic cursor checks
+
+> Task :core:cwFunctionalityTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 164 functionality checks
+
+> Task :core:cwLayoutMetricsTest
+PASS 25 CW layout metric checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+> Task :core:cwModeRegressionTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 85 structured mode checks
+
+> Task :core:cwNumericalSafetyTest
+PASS 67 numerical safety checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+> Task :core:cwRegressionTest
+PASS 197 CN CW machine checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+> Task :core:cwSemanticTest
+PASS 54 CN CW semantic checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+> Task :core:cwStage6AcceptanceTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 116 Stage 6 acceptance checks
+
+> Task :core:cwWorkflowSpecTest
+PASS 132 workflow-spec/session checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+> Task :core:cwWorkflowValidationTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 16 workflow-validation checks
+
+> Task :core:manualFunctionsTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 37 manual utility checks
+
+> Task :core:numericBudgetTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 27 numeric budget checks
+
+> Task :core:regressionTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 169 regression checks
+
+> Task :core:jar
+> Task :core:compileTestJava NO-SOURCE
+> Task :core:processTestResources NO-SOURCE
+> Task :core:testClasses UP-TO-DATE
+> Task :core:test NO-SOURCE
+> Task :core:check
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preCn991DebugBuild UP-TO-DATE
+> Task :app:mergeCn991DebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateCn991DebugBuildConfig UP-TO-DATE
+> Task :app:javaPreCompileCn991Debug UP-TO-DATE
+> Task :app:checkCn991DebugAarMetadata UP-TO-DATE
+> Task :app:generateCn991DebugResValues UP-TO-DATE
+> Task :app:mapCn991DebugSourceSetPaths UP-TO-DATE
+> Task :app:generateCn991DebugResources UP-TO-DATE
+> Task :app:mergeCn991DebugResources UP-TO-DATE
+> Task :app:packageCn991DebugResources UP-TO-DATE
+> Task :app:parseCn991DebugLocalResources UP-TO-DATE
+> Task :app:createCn991DebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksCn991Debug UP-TO-DATE
+> Task :app:processCn991DebugMainManifest UP-TO-DATE
+> Task :app:processCn991DebugManifest UP-TO-DATE
+> Task :app:processCn991DebugManifestForPackage UP-TO-DATE
+> Task :app:processCn991DebugResources UP-TO-DATE
+
+> Task :app:compileCn991DebugJavaWithJavac
+Note: D:\Codex\Projects\fx991-stage6-audit\app\src\main\java\com\codex\fx991smooth\CalculatorView.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :app:mergeCn991DebugShaders UP-TO-DATE
+> Task :app:compileCn991DebugShaders NO-SOURCE
+> Task :app:generateCn991DebugAssets UP-TO-DATE
+> Task :app:mergeCn991DebugAssets UP-TO-DATE
+> Task :app:compressCn991DebugAssets UP-TO-DATE
+> Task :app:desugarCn991DebugFileDependencies UP-TO-DATE
+> Task :app:dexBuilderCn991Debug
+> Task :app:mergeCn991DebugGlobalSynthetics UP-TO-DATE
+> Task :app:processCn991DebugJavaRes NO-SOURCE
+> Task :app:checkCn991DebugDuplicateClasses UP-TO-DATE
+> Task :app:mergeExtDexCn991Debug UP-TO-DATE
+> Task :app:mergeProjectDexCn991Debug UP-TO-DATE
+> Task :app:mergeCn991DebugJniLibFolders UP-TO-DATE
+> Task :app:mergeCn991DebugNativeLibs NO-SOURCE
+> Task :app:stripCn991DebugDebugSymbols NO-SOURCE
+> Task :app:validateSigningCn991Debug UP-TO-DATE
+> Task :app:writeCn991DebugAppMetadata UP-TO-DATE
+> Task :app:writeCn991DebugSigningConfigVersions UP-TO-DATE
+> Task :app:bundleCn991DebugClassesToCompileJar UP-TO-DATE
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :app:preCn991DebugAndroidTestBuild SKIPPED
+> Task :app:generateCn991DebugAndroidTestResValues UP-TO-DATE
+> Task :app:mergeCn991DebugJavaResource
+> Task :app:mergeLibDexCn991Debug
+> Task :app:generateCn991DebugLintReportModel
+> Task :app:packageCn991Debug
+> Task :app:createCn991DebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleCn991Debug
+> Task :app:lintAnalyzeCn991Debug
+> Task :app:lintReportCn991Debug UP-TO-DATE
+> Task :app:lintCn991Debug
+
+BUILD SUCCESSFUL in 28s
+59 actionable tasks: 28 executed, 31 up-to-date

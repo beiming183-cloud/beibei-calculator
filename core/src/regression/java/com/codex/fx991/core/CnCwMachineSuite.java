@@ -6,6 +6,7 @@ import com.codex.fx991.core.cw.CnCwMachine;
 import com.codex.fx991.core.cw.CnCwModeEngine;
 import com.codex.fx991.core.cw.CnCwScreen;
 import com.codex.fx991.core.cw.CnCwUiState;
+import com.codex.fx991.core.cw.CnCwWorkflowAction;
 import com.codex.fx991.core.mode.CnCwModel;
 
 /** Golden interaction traces for the clean-room CN CW shell. */
@@ -61,6 +62,7 @@ public final class CnCwMachineSuite {
         applicationLandingIsDeterministic();
         structuredModesReachCoreEngines();
         structuredWorkflowInputPageRunsEndToEnd();
+        workflowActionsCanBeAppliedFromMachine();
         spreadsheetCompactWorkflowPersistsCells();
         spreadsheetGridMovesAndCommitsSelectedCell();
         System.out.println("PASS " + checks + " CN CW machine checks");
@@ -888,6 +890,19 @@ public final class CnCwMachineSuite {
         legacy.dispatch(CnCwKey.DIGIT_1); // Direct typing from landing is compatibility path.
         check(!legacy.state().hasWorkflowInput(),
                 "direct typing from application landing preserves legacy bridge");
+    }
+
+    private void workflowActionsCanBeAppliedFromMachine() {
+        CnCwMachine statistics = homeApplication(CnCwModel.FX_991_CN_CW, 1);
+        statistics.dispatch(CnCwKey.OK);
+        check(statistics.state().hasWorkflowInput(), "statistics action test opens workflow");
+        equal(1, statistics.state().workflowInput().rows(), "series starts at one row");
+        statistics.performWorkflowAction(CnCwWorkflowAction.Type.ADD_ROW);
+        equal(2, statistics.state().workflowInput().rows(), "ADD_ROW mutates workflow through machine");
+        statistics.performWorkflowAction(CnCwWorkflowAction.Type.REMOVE_ROW);
+        equal(1, statistics.state().workflowInput().rows(), "REMOVE_ROW mutates workflow through machine");
+        statistics.performWorkflowAction(CnCwWorkflowAction.Type.BACK);
+        check(statistics.state().applicationLanding(), "BACK action returns to command landing");
     }
 
     private void spreadsheetCompactWorkflowPersistsCells() {

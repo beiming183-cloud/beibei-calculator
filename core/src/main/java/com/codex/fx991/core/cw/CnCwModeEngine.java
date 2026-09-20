@@ -14,6 +14,7 @@ import com.codex.fx991.core.mode.ApplicationMode;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.math.MathContext;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -196,45 +197,107 @@ public final class CnCwModeEngine {
                                          List<String> fields,
                                          ScalarExpressionEngine.EvaluationContext context) {
         double[] values = evaluateFields(fields, 0, context);
-        if (command.equals("one")) {
-            StatisticsEngine.OneVariableResults result = StatisticsEngine.oneVariable(values);
+        if (command.equals("one") || command.equals("one-freq")) {
+            double[] x;
+            double[] frequency = null;
+            if (command.equals("one-freq")) {
+                if (values.length < 2 || values.length % 2 != 0) {
+                    throw new IllegalArgumentException("Enter x1,f1,x2,f2,...");
+                }
+                x = new double[values.length / 2];
+                frequency = new double[x.length];
+                for (int i = 0; i < x.length; i++) {
+                    x[i] = values[i * 2];
+                    frequency[i] = values[i * 2 + 1];
+                }
+            } else {
+                x = values;
+            }
+            StatisticsEngine.OneVariableResults result = frequency == null
+                    ? StatisticsEngine.oneVariable(x) : StatisticsEngine.oneVariable(x, frequency);
             String display = "n=" + format(result.n()) + "  x̄=" + format(result.mean())
                     + "\nσx=" + format(result.populationStdDev())
                     + "  sx=" + format(result.sampleStdDev());
-            return ModeResult.keyValue("一元统计", display, result.mean(),
+            return ModeResult.keyValue(command.equals("one-freq") ? "一元统计（频数）" : "一元统计",
+                    display, result.mean(),
                     item("n", result.n()),
                     item("x̄", result.mean()),
                     item("σx", result.populationStdDev()),
                     item("sx", result.sampleStdDev()));
         }
-        if (values.length < 4 || values.length % 2 != 0) {
-            throw new IllegalArgumentException("Enter x1,y1,x2,y2,...");
+
+        boolean frequencyMode = command.endsWith("-freq") || command.equals("two-freq");
+        String baseCommand = command.endsWith("-freq")
+                ? command.substring(0, command.length() - "-freq".length()) : command;
+        int stride = frequencyMode ? 3 : 2;
+        if (values.length < stride * 2 || values.length % stride != 0) {
+            throw new IllegalArgumentException(frequencyMode
+                    ? "Enter x1,y1,f1,x2,y2,f2,..." : "Enter x1,y1,x2,y2,...");
         }
-        double[] x = new double[values.length / 2];
-        double[] y = new double[x.length];
-        for (int i = 0; i < x.length; i++) {
-            x[i] = values[i * 2];
-            y[i] = values[i * 2 + 1];
+        int rows = values.length / stride;
+        double[] x = new double[rows];
+        double[] y = new double[rows];
+        double[] frequency = frequencyMode ? new double[rows] : null;
+        for (int i = 0; i < rows; i++) {
+            x[i] = values[i * stride];
+            y[i] = values[i * stride + 1];
+            if (frequencyMode) frequency[i] = values[i * stride + 2];
         }
-        if (command.equals("regression")) {
-            StatisticsEngine.RegressionResult fit = StatisticsEngine.regression(
-                    StatisticsEngine.RegressionType.LINEAR, x, y);
+
+        StatisticsEngine.RegressionType regressionType = regressionType(baseCommand);
+        if (regressionType != null) {
+            StatisticsEngine.RegressionResult fit = frequencyMode
+                    ? StatisticsEngine.regression(regressionType, x, y, frequency)
+                    : StatisticsEngine.regression(regressionType, x, y);
+            String title = regressionTitle(regressionType) + (frequencyMode ? "（频数）" : "");
+            if (regressionType == StatisticsEngine.RegressionType.QUADRATIC) {
+                String display = "a=" + format(fit.a()) + "  b=" + format(fit.b())
+                        + "\nc=" + format(fit.c());
+                return ModeResult.keyValue(title, display, fit.a(),
+                        item("a", fit.a()), item("b", fit.b()), item("c", fit.c()));
+            }
             String display = "a=" + format(fit.a()) + "  b=" + format(fit.b())
                     + "\nr=" + format(fit.r());
-            return ModeResult.keyValue("线性回归", display, fit.r(),
-                    item("a", fit.a()),
-                    item("b", fit.b()),
-                    item("r", fit.r()));
+            return ModeResult.keyValue(title, display, fit.r(),
+                    item("a", fit.a()), item("b", fit.b()), item("r", fit.r()));
         }
-        StatisticsEngine.TwoVariableResults result = StatisticsEngine.twoVariable(x, y);
+        if (!baseCommand.equals("two")) throw new IllegalArgumentException("Unknown statistics command");
+        StatisticsEngine.TwoVariableResults result = frequencyMode
+                ? StatisticsEngine.twoVariable(x, y, frequency) : StatisticsEngine.twoVariable(x, y);
         String display = "x̄=" + format(result.meanX()) + "  ȳ=" + format(result.meanY())
                 + "\nσx=" + format(result.populationStdDevX())
                 + "  σy=" + format(result.populationStdDevY());
-        return ModeResult.keyValue("双变量统计", display, result.meanX(),
+        return ModeResult.keyValue(frequencyMode ? "双变量统计（频数）" : "双变量统计",
+                display, result.meanX(),
                 item("x̄", result.meanX()),
                 item("ȳ", result.meanY()),
                 item("σx", result.populationStdDevX()),
                 item("σy", result.populationStdDevY()));
+    }
+
+    private static StatisticsEngine.RegressionType regressionType(String command) {
+        return switch (command) {
+            case "regression", "reg-linear" -> StatisticsEngine.RegressionType.LINEAR;
+            case "reg-quadratic" -> StatisticsEngine.RegressionType.QUADRATIC;
+            case "reg-logarithmic" -> StatisticsEngine.RegressionType.LOGARITHMIC;
+            case "reg-e-exponential" -> StatisticsEngine.RegressionType.E_EXPONENTIAL;
+            case "reg-ab-exponential" -> StatisticsEngine.RegressionType.AB_EXPONENTIAL;
+            case "reg-power" -> StatisticsEngine.RegressionType.POWER;
+            case "reg-inverse" -> StatisticsEngine.RegressionType.INVERSE;
+            default -> null;
+        };
+    }
+
+    private static String regressionTitle(StatisticsEngine.RegressionType type) {
+        return switch (type) {
+            case LINEAR -> "线性回归";
+            case QUADRATIC -> "二次回归";
+            case LOGARITHMIC -> "对数回归";
+            case E_EXPONENTIAL -> "e 指数回归";
+            case AB_EXPONENTIAL -> "ab^x 回归";
+            case POWER -> "幂回归";
+            case INVERSE -> "逆数回归";
+        };
     }
 
     private static ModeResult distribution(String command,
@@ -281,13 +344,13 @@ public final class CnCwModeEngine {
         ScalarExpressionEngine.CompiledExpression g = twoFunctions
                 ? ScalarExpressionEngine.compile(fields.get(1)) : null;
         int offset = twoFunctions ? 2 : 1;
-        double start = scalar(fields.get(offset), context);
-        double end = scalar(fields.get(offset + 1), context);
+        double startValue = scalar(fields.get(offset), context);
+        double endValue = scalar(fields.get(offset + 1), context);
         double step = scalar(fields.get(offset + 2), context);
         List<FunctionTableEngine.Row> rows = FunctionTableEngine.generate(f, g,
                 twoFunctions ? FunctionTableEngine.TableType.F_AND_G
                         : FunctionTableEngine.TableType.F_ONLY,
-                start, end, step, context);
+                startValue, endValue, step, context);
         FunctionTableEngine.Row first = rows.get(0);
         FunctionTableEngine.Row last = rows.get(rows.size() - 1);
         String firstText = format(first.x()) + ":" + format(first.f());
@@ -296,8 +359,19 @@ public final class CnCwModeEngine {
             firstText += "," + format(first.g());
             lastText += "," + format(last.g());
         }
-        return new ModeResult("rows=" + rows.size() + "  " + firstText + "\n… " + lastText,
-                first.f());
+        String display = "rows=" + rows.size() + "  " + firstText + "\n… " + lastText;
+        List<String> cells = new ArrayList<>();
+        for (FunctionTableEngine.Row row : rows) {
+            cells.add(format(row.x()));
+            cells.add(format(row.f()));
+            if (twoFunctions) cells.add(format(row.g()));
+        }
+        List<ResultItem> headings = new ArrayList<>();
+        headings.add(item("x", "x"));
+        headings.add(item("f(x)", "f(x)"));
+        if (twoFunctions) headings.add(item("g(x)", "g(x)"));
+        return ModeResult.grid(ResultLayout.TABLE, twoFunctions ? "函数表 f,g" : "函数表 f",
+                display, first.f(), rows.size(), twoFunctions ? 3 : 2, cells, headings);
     }
 
     private static ModeResult equation(String command,
@@ -459,7 +533,8 @@ public final class CnCwModeEngine {
         double answer = command.equals("a:b=x:d")
                 ? RatioEngine.solveAtoBEqualsXtoD(values[0], values[1], values[2])
                 : RatioEngine.solveAtoBEqualsCtoX(values[0], values[1], values[2]);
-        return new ModeResult("X=" + format(answer), answer);
+        return ModeResult.keyValue("比例", "X=" + format(answer), answer,
+                item("X", answer));
     }
 
     private static double[] evaluateFields(List<String> fields, int start,
@@ -491,17 +566,20 @@ public final class CnCwModeEngine {
         return trimmed;
     }
 
-    private static String format(double value) {
+    static String format(double value) {
         if (!Double.isFinite(value)) return Double.toString(value);
         if (value == 0.0) return "0";
-        String text = BigDecimal.valueOf(value).setScale(11, RoundingMode.HALF_UP)
-                .stripTrailingZeros().toPlainString();
+        BigDecimal rounded = BigDecimal.valueOf(value)
+                .round(new MathContext(12, RoundingMode.HALF_UP)).stripTrailingZeros();
+        double magnitude = Math.abs(value);
+        String text = magnitude < 1e-9 || magnitude >= 1e10
+                ? rounded.toString() : rounded.toPlainString();
         return text.startsWith("-") ? "−" + text.substring(1) : text;
     }
 
     private static String formatComplex(ComplexValue value) {
-        if (Math.abs(value.imaginary()) < 1e-12) return format(value.real());
-        if (Math.abs(value.real()) < 1e-12) return format(value.imaginary()) + "i";
+        if (value.imaginary() == 0.0) return format(value.real());
+        if (value.real() == 0.0) return format(value.imaginary()) + "i";
         return format(value.real()) + (value.imaginary() < 0 ? "−" : "+")
                 + format(Math.abs(value.imaginary())) + "i";
     }

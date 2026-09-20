@@ -33,8 +33,9 @@ public final class StatisticsEngine {
             if (frequency[i] > 0.0) sorted.add(new WeightedValue(x[i], frequency[i]));
         }
         sorted.sort(Comparator.comparingDouble(WeightedValue::value));
-        double mean = sumX / n;
-        double populationVariance = nonNegative(sumX2 / n - mean * mean);
+        CenteredSeries centered = centeredSeries(x, frequency, n);
+        double mean = centered.mean();
+        double populationVariance = centered.sumSquares() / n;
         double sampleVariance = n > 1.0 ? populationVariance * n / (n - 1.0) : Double.NaN;
         return new OneVariableResults(
                 n, sumX, sumX2, mean,
@@ -77,9 +78,11 @@ public final class StatisticsEngine {
                 minY = Math.min(minY, y[i]); maxY = Math.max(maxY, y[i]);
             }
         }
-        double meanX = sx / n, meanY = sy / n;
-        double pvx = nonNegative(sx2 / n - meanX * meanX);
-        double pvy = nonNegative(sy2 / n - meanY * meanY);
+        CenteredSeries centeredX = centeredSeries(x, frequency, n);
+        CenteredSeries centeredY = centeredSeries(y, frequency, n);
+        double meanX = centeredX.mean(), meanY = centeredY.mean();
+        double pvx = centeredX.sumSquares() / n;
+        double pvy = centeredY.sumSquares() / n;
         double svx = n > 1 ? pvx * n / (n - 1) : Double.NaN;
         double svy = n > 1 ? pvy * n / (n - 1) : Double.NaN;
         return new TwoVariableResults(n, sx, sy, sx2, sy2, sxy, sx3, sx2y, sx4,
@@ -117,44 +120,58 @@ public final class StatisticsEngine {
 
     private static RegressionResult linearFit(
             double[] x, double[] y, double[] frequency, RegressionType type) {
-        double n = sum(frequency), sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+        double n = sum(frequency);
+        CenteredSeries xSeries = centeredSeries(x, frequency, n);
+        CenteredSeries ySeries = centeredSeries(y, frequency, n);
+        double centeredX = xSeries.sumSquares(), centeredY = ySeries.sumSquares();
+        double centeredXY = 0.0;
         for (int i = 0; i < x.length; i++) {
             double f = frequency[i];
-            sx = com.codex.fx991.core.Compat.multiplyAdd(x[i], f, sx);
-            sy = com.codex.fx991.core.Compat.multiplyAdd(y[i], f, sy);
-            sxx = com.codex.fx991.core.Compat.multiplyAdd(x[i] * x[i], f, sxx);
-            syy = com.codex.fx991.core.Compat.multiplyAdd(y[i] * y[i], f, syy);
-            sxy = com.codex.fx991.core.Compat.multiplyAdd(x[i] * y[i], f, sxy);
+            if (f == 0.0) continue;
+            centeredXY += xSeries.center(x[i]) * ySeries.center(y[i]) * f;
         }
-        double centeredX = sxx - sx * sx / n;
-        double centeredY = syy - sy * sy / n;
-        double centeredXY = sxy - sx * sy / n;
-        if (Math.abs(centeredX) < 1e-15) throw new ArithmeticException("Regression is singular");
+        if (centeredX == 0.0 || !Double.isFinite(centeredX)
+                || !Double.isFinite(centeredY) || !Double.isFinite(centeredXY)) {
+            throw new ArithmeticException("Regression is singular or outside range");
+        }
         double slope = centeredXY / centeredX;
-        double intercept = (sy - slope * sx) / n;
+        double intercept = ySeries.mean() - slope * xSeries.mean();
         double correlation = centeredY <= 0.0 ? Double.NaN
-                : centeredXY / Math.sqrt(centeredX * centeredY);
+                : (centeredXY / Math.sqrt(centeredX)) / Math.sqrt(centeredY);
+        if (Double.isFinite(correlation)) correlation = Math.max(-1.0, Math.min(1.0, correlation));
+        if (!Double.isFinite(slope) || !Double.isFinite(intercept)) {
+            throw new ArithmeticException("Regression range");
+        }
         return new RegressionResult(type, slope, intercept, Double.NaN, correlation);
     }
 
-    private static RegressionResult quadraticFit(double[] x, double[] y, double[] frequency) {
-        double n = sum(frequency), sx = 0, sx2 = 0, sx3 = 0, sx4 = 0, sy = 0, sxy = 0, sx2y = 0;
-        for (int i = 0; i < x.length; i++) {
-            double f = frequency[i], x2 = x[i] * x[i];
-            sx = com.codex.fx991.core.Compat.multiplyAdd(x[i], f, sx);
-            sx2 = com.codex.fx991.core.Compat.multiplyAdd(x2, f, sx2);
-            sx3 = com.codex.fx991.core.Compat.multiplyAdd(x2 * x[i], f, sx3);
-            sx4 = com.codex.fx991.core.Compat.multiplyAdd(x2 * x2, f, sx4);
-            sy = com.codex.fx991.core.Compat.multiplyAdd(y[i], f, sy);
-            sxy = com.codex.fx991.core.Compat.multiplyAdd(x[i] * y[i], f, sxy);
-            sx2y = com.codex.fx991.core.Compat.multiplyAdd(x2 * y[i], f, sx2y);
+    /** Shift before summation so large offsets do not erase small variations. */
+    private static CenteredSeries centeredSeries(double[] values, double[] frequency, double n) {
+        int first = 0;
+        while (first < frequency.length && frequency[first] == 0.0) first++;
+        if (first == frequency.length || !Double.isFinite(n)) throw new ArithmeticException("Sample range");
+        double origin = values[first];
+        double offset = 0.0;
+        for (int i = 0; i < values.length; i++) {
+            if (frequency[i] != 0.0) offset += (values[i] - origin) * (frequency[i] / n);
         }
-        MatrixValue normal = new MatrixValue(new double[][] {
-                {sx4, sx3, sx2}, {sx3, sx2, sx}, {sx2, sx, n}
-        });
-        double[] coefficients = normal.solve(new double[] {sx2y, sxy, sy});
-        return new RegressionResult(RegressionType.QUADRATIC,
-                coefficients[0], coefficients[1], coefficients[2], Double.NaN);
+        double squares = 0.0;
+        for (int i = 0; i < values.length; i++) {
+            if (frequency[i] == 0.0) continue;
+            double centered = (values[i] - origin) - offset;
+            squares += centered * centered * frequency[i];
+        }
+        if (!Double.isFinite(offset) || !Double.isFinite(squares)) throw new ArithmeticException("Statistics range");
+        return new CenteredSeries(origin, offset, squares);
+    }
+
+    private record CenteredSeries(double origin, double offset, double sumSquares) {
+        double mean() { return origin + offset; }
+        double center(double value) { return (value - origin) - offset; }
+    }
+
+    private static RegressionResult quadraticFit(double[] x, double[] y, double[] frequency) {
+        return QuadraticRegression.fit(x, y, frequency);
     }
 
     private enum Transform { LOG_X, LOG_Y_E, LOG_Y_AB, LOG_X_LOG_Y, INVERSE_X }
@@ -281,12 +298,48 @@ public final class StatisticsEngine {
         public double maxY() { return maxY; }
     }
 
-    /** Coefficients use the manual's equation order: a, b, c. */
-    public record RegressionResult(RegressionType type, double a, double b, double c, double r) {
+    /**
+     * Coefficient accessors and the five-argument constructor retain their API.
+     * A fitted quadratic also retains immutable local coordinates for prediction;
+     * rebuilding it from rounded display coefficients would lose that accuracy.
+     */
+    public static final class RegressionResult {
+        private final RegressionType type;
+        private final double a, b, c, r;
+        private final QuadraticRegression quadraticModel;
+
+        public RegressionResult(RegressionType type, double a, double b, double c, double r) {
+            this(type, a, b, c, r, null);
+        }
+
+        RegressionResult(RegressionType type, double a, double b, double c, double r,
+                         QuadraticRegression quadraticModel) {
+            this.type = type; this.a = a; this.b = b; this.c = c; this.r = r;
+            this.quadraticModel = quadraticModel;
+        }
+
+        public RegressionType type() { return type; }
+        public double a() { return a; }
+        public double b() { return b; }
+        public double c() { return c; }
+        public double r() { return r; }
+
+        @Override public boolean equals(Object other) {
+            return other instanceof RegressionResult value && type == value.type
+                    && Double.compare(a, value.a) == 0 && Double.compare(b, value.b) == 0
+                    && Double.compare(c, value.c) == 0 && Double.compare(r, value.r) == 0;
+        }
+
+        @Override public int hashCode() { return java.util.Objects.hash(type, a, b, c, r); }
+
+        @Override public String toString() {
+            return "RegressionResult[type=" + type + ", a=" + a + ", b=" + b + ", c=" + c + ", r=" + r + "]";
+        }
+
         public double estimateY(double x) {
             return switch (type) {
                 case LINEAR -> a * x + b;
-                case QUADRATIC -> a * x * x + b * x + c;
+                case QUADRATIC -> quadraticModel == null ? (a * x + b) * x + c : quadraticModel.estimateY(x);
                 case LOGARITHMIC -> a + b * Math.log(x);
                 case E_EXPONENTIAL -> a * Math.exp(b * x);
                 case AB_EXPONENTIAL -> a * Math.pow(b, x);
@@ -299,10 +352,8 @@ public final class StatisticsEngine {
             return switch (type) {
                 case LINEAR -> new double[] {(y - b) / a};
                 case QUADRATIC -> {
-                    double discriminant = b * b - 4.0 * a * (c - y);
-                    if (discriminant < 0.0) yield new double[0];
-                    double root = Math.sqrt(discriminant);
-                    yield new double[] {(-b + root) / (2.0 * a), (-b - root) / (2.0 * a)};
+                    yield quadraticModel == null ? QuadraticRegression.realRoots(a, b, c - y)
+                            : quadraticModel.estimateX(y);
                 }
                 case LOGARITHMIC -> new double[] {Math.exp((y - a) / b)};
                 case E_EXPONENTIAL -> new double[] {Math.log(y / a) / b};
@@ -357,10 +408,6 @@ public final class StatisticsEngine {
 
     private static void requirePositive(double value) {
         if (!(value > 0.0)) throw new ArithmeticException("Expected positive value");
-    }
-
-    private static double nonNegative(double value) {
-        return value < 0.0 && value > -1e-13 ? 0.0 : value;
     }
 
     private static double sum(double[] values) {

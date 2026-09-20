@@ -1,0 +1,14 @@
+HEX 1E -> DEC expected 30 result= status=输入格式错误 · 进制转换 · 数值 · 1,3 shown=false error=false ans=0.0
+HEX input cells=[16, 10, 1E]
+MatA 1e-12 result=1×1  [1,1]=0 status=矩阵 shown=true error=false ans=1.0E-12
+MatA cells=[0]
+Trn MatA cells=[0]
+verification before=true
+verification after HOME HOME Statistics=true
+return Calculate 2+3 result=5 status=计算 shown=true error=false ans=5.0
+MatAns after switching via double HOME result=1×1  [1,1]=25 status=矩阵 shown=true error=false ans=25.0
+invalid negative freq result=Argument ERROR status=按 OK、返回或 AC 回到错误位置 shown=true error=true ans=0.0
+after error OK expression=10,-1 cells=[10, -1]
+after selecting x cells=[10, 10,-1]
+double HOME switch twice then Calculate 2+3 result=No Operator status=按 OK、返回或 AC 回到错误位置 shown=true error=true ans=0.0
+

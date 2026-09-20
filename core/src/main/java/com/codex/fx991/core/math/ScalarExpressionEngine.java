@@ -941,11 +941,11 @@ public final class ScalarExpressionEngine {
         return switch (function) {
             case "sin" -> {
                 validateTrigArgument(x, context.angleUnit(), position);
-                yield Math.sin(toRadians(x, context.angleUnit()));
+                yield AngleTrig.sin(x, context.angleUnit());
             }
             case "cos" -> {
                 validateTrigArgument(x, context.angleUnit(), position);
-                yield Math.cos(toRadians(x, context.angleUnit()));
+                yield AngleTrig.cos(x, context.angleUnit());
             }
             case "tan" -> {
                 validateTrigArgument(x, context.angleUnit(), position);
@@ -971,7 +971,16 @@ public final class ScalarExpressionEngine {
                 yield Math.cosh(x);
             }
             case "tanh" -> Math.tanh(x);
-            case "asinh" -> Math.log(x + Math.sqrt(x * x + 1.0));
+            case "asinh" -> {
+                double magnitude = Math.abs(x);
+                // Preserve odd symmetry without subtracting nearly equal large
+                // numbers; log1p also retains arguments arbitrarily close to zero.
+                double result = magnitude >= 1e8
+                        ? Math.log(magnitude) + Math.log(2.0)
+                        : Math.log1p(magnitude + magnitude * magnitude
+                                / (1.0 + Math.hypot(magnitude, 1.0)));
+                yield Math.copySign(result, x);
+            }
             case "acosh" -> {
                 if (x < 1.0) throw math("acosh domain", position);
                 yield Math.log(x + Math.sqrt(x - 1.0) * Math.sqrt(x + 1.0));

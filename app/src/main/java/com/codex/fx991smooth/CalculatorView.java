@@ -26,6 +26,7 @@ import com.codex.fx991.core.cw.CnCwMachine;
 import com.codex.fx991.core.cw.CnCwModeEngine;
 import com.codex.fx991.core.cw.CnCwScreen;
 import com.codex.fx991.core.cw.CnCwUiState;
+import com.codex.fx991.core.cw.CnCwWorkflowAction;
 import com.codex.fx991.core.cw.CnCwWorkflowSession;
 import com.codex.fx991.core.cw.CnCwWorkflowSpec;
 import com.codex.fx991.core.mode.CnCwModel;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.CancellationException;
 import java.math.BigDecimal;
 
 /**
@@ -47,12 +49,17 @@ import java.math.BigDecimal;
  * never be duplicated by crossed releases.</p>
  */
 public final class CalculatorView extends View {
+    private static final java.util.regex.Pattern SCI_MANTISSA =
+            java.util.regex.Pattern.compile("[+\\-−]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
+    private static final java.util.regex.Pattern SCI_EXPONENT =
+            java.util.regex.Pattern.compile("[+\\-−]?[0-9]+");
     private final android.os.Handler gestureHandler = new android.os.Handler();
     private Runnable displayLongPress;
     private Runnable keyRepeat;
     private CnCwKey repeatingKey;
     private int repeatingPointerId = -1;
     private boolean displayPressed;
+    private int displayPointerId = -1;
     private boolean displaySelectionMode;
     private boolean displayLongPressTriggered;
     private float displayDownX;
@@ -61,6 +68,10 @@ public final class CalculatorView extends View {
     private CnCwCursorPath lastDragSemantic;
     /** -1 = left handle, 0 = choose from drag direction, +1 = right handle. */
     private int selectionDragEdge;
+    private int homePointerId = -1;
+    private int pressedHomeIndex = -1;
+    private int pressedHomeViewport;
+    private float homeDownX, homeDownY;
     private boolean selectionTapCandidate;
     private static final int BODY_EDGE = Color.rgb(48, 55, 52);
     /* A warm neutral shell keeps the calculator from looking washed out while
@@ -100,16 +111,24 @@ public final class CalculatorView extends View {
     /** Geometry/legends are owned by the physical 991 layout, not the painter. */
     private final PhysicalKeyLayout physicalLayout;
     private final CnCwTouchRouter touchRouter = new CnCwTouchRouter();
-    private final ExecutorService evaluationExecutor = Executors.newSingleThreadExecutor(task -> {
-        Thread thread = new Thread(task, "cn-cw-evaluator");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private ExecutorService evaluationExecutor = createEvaluationExecutor();
     private CnCwMachine machine;
     private CnCwUiState state;
     private Future<?> pendingEvaluation;
+    private CnCwKey pendingEvaluationKey;
     private long inputRevision;
     private boolean evaluating;
+    /** View-local viewport for core-owned TABLE results; never changes math state. */
+    private CnCwModeEngine.ModeResult tableResult;
+    private int tableFirstRow;
+
+    private static ExecutorService createEvaluationExecutor() {
+        return Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "cn-cw-evaluator");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
 
     public CalculatorView(Context context) {
         super(context);
@@ -255,60 +274,87 @@ public final class CalculatorView extends View {
     }
 
     private void drawHomeScreen(Canvas canvas, RectF lcd) {
-        drawStatusBar(canvas, lcd, "");
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(LCD_MID);
+        canvas.drawRect(lcd.left, lcd.top, lcd.right, lcd.top + lcd.height() * 0.09f, paint);
+        paint.setColor(LCD_DARK);
+        paint.setTypeface(FACE_MEDIUM);
+        paint.setTextSize(sp(10f));
+        paint.setTextAlign(Paint.Align.LEFT);
+        canvas.drawText("应用", lcd.left + dp(7),
+                centeredBaseline(lcd.top, lcd.top + lcd.height() * 0.09f), paint);
         List<CnCwCommand> allItems = state.homeItems();
         List<CnCwCommand> items = state.homeVisibleItems();
-        float contentTop = lcd.top + lcd.height() * 0.115f;
-        float outer = dp(4.5f);
-        float columnGap = dp(4f);
-        float rowGap = dp(5f);
-        int columns = 3;
-        int rows = 2;
         int start = state.homeViewportStart();
-        int visibleCount = items.size();
-        float cellWidth = (lcd.width() - outer * 2f - columnGap * (columns - 1)) / columns;
-        float cellHeight = (lcd.bottom - contentTop - outer * 2f - rowGap) / rows;
-        float radius = dp(4.2f);
+        float radius = dp(7f);
+        paint.setTypeface(FACE_NORMAL);
+        paint.setTextAlign(Paint.Align.RIGHT);
+        paint.setTextSize(sp(9f));
+        paint.setColor(LCD_DARK);
+        canvas.drawText((start / 6 + 1) + " / " + ((allItems.size() + 5) / 6),
+                lcd.right - dp(7), centeredBaseline(lcd.top, lcd.top + lcd.height() * 0.09f), paint);
         for (int visibleIndex = 0; visibleIndex < items.size(); visibleIndex++) {
             int index = start + visibleIndex;
-            int row = visibleIndex / columns;
-            int column = visibleIndex % columns;
-            float left = lcd.left + outer + column * (cellWidth + columnGap);
-            float top = contentTop + outer + row * (cellHeight + rowGap);
-            scratch.set(left, top, left + cellWidth, top + cellHeight);
+            homeCardBounds(lcd, visibleIndex, scratch);
             boolean selected = index == state.selectedIndex();
 
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.argb(selected ? 56 : 14, 22, 37, 31));
+            paint.setColor(Color.argb(selected ? 31 : 8, 22, 55, 42));
             canvas.drawRoundRect(scratch, radius, radius, paint);
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(selected ? 1.1f : 0.65f));
-            paint.setColor(Color.argb(selected ? 176 : 58, 22, 37, 31));
+            paint.setStrokeWidth(dp(selected ? 1.2f : 0.6f));
+            paint.setColor(Color.argb(selected ? 180 : 40, 22, 55, 42));
             canvas.drawRoundRect(scratch, radius, radius, paint);
             paint.setStyle(Paint.Style.FILL);
 
             drawApplicationGlyph(canvas, items.get(visibleIndex).id(), scratch, LCD_INK);
             drawFittedCentered(canvas, items.get(visibleIndex).label(), scratch.centerX(),
-                    scratch.bottom - dp(18f), scratch.bottom - dp(2.5f),
-                    sp(13.5f), scratch.width() * 0.88f, sp(10.5f), LCD_INK, FACE_MEDIUM);
+                    scratch.centerY() + dp(9), scratch.centerY() + dp(25),
+                    sp(12f), scratch.width() * 0.88f, sp(10.5f), LCD_INK, FACE_NORMAL);
         }
-        if (allItems.size() > visibleCount) {
-            drawScrollBar(canvas, lcd, start, visibleCount, allItems.size(),
-                    contentTop + outer, lcd.bottom - outer);
+    }
+
+    private void homeCardBounds(RectF lcd, int slot, RectF out) {
+        float outer = dp(6f), columnGap = dp(6f), rowGap = dp(6f);
+        float contentTop = lcd.top + lcd.height() * 0.115f;
+        int columns = state.homeVisibleItems().size() <= 4 ? 2 : 3;
+        float width = (lcd.width() - outer * 2 - columnGap * (columns - 1)) / columns;
+        float height = (lcd.bottom - contentTop - outer * 2 - rowGap) / 2;
+        float left = lcd.left + outer + (slot % columns) * (width + columnGap);
+        float top = contentTop + outer + (slot / columns) * (height + rowGap);
+        out.set(left, top, left + width, top + height);
+    }
+
+    private int homeItemAt(float x, float y) {
+        if (state.screen() != CnCwScreen.HOME) return -1;
+        RectF lcd = displayBounds(getWidth());
+        for (int slot = 0; slot < state.homeVisibleItems().size(); slot++) {
+            homeCardBounds(lcd, slot, scratch);
+            if (scratch.contains(x, y)) return state.homeViewportStart() + slot;
         }
+        return -1;
+    }
+
+    private boolean isStructuredResultScreen() {
+        return state.screen().isApplication() && !state.applicationLanding()
+                && state.resultShown() && state.hasStructuredApplicationResult();
     }
 
     private void drawApplicationGlyph(Canvas canvas, String id, RectF cell, int color) {
         float cx = cell.centerX();
-        float cy = cell.top + cell.height() * 0.38f;
-        float radius = Math.min(cell.width(), cell.height()) * 0.145f;
+        float cy = cell.centerY() - dp(10);
+        float radius = dp(11);
         paint.setColor(color);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(dp(1.2f));
+        paint.setStrokeWidth(dp(1.35f));
+        paint.setStrokeCap(Paint.Cap.ROUND);
         if ("CALCULATE".equals(id)) {
-            canvas.drawLine(cx - radius, cy, cx + radius, cy, paint);
-            canvas.drawLine(cx, cy - radius, cx, cy + radius, paint);
-            canvas.drawCircle(cx + radius * 1.45f, cy, dp(0.8f), paint);
+            canvas.drawRoundRect(cx-radius*1.2f,cy-radius*1.2f,cx+radius*1.2f,cy+radius*1.2f,dp(3),dp(3),paint);
+            canvas.drawLine(cx-radius*.65f,cy-radius*.55f,cx+radius*.65f,cy-radius*.55f,paint);
+            canvas.drawLine(cx-radius*.65f,cy+radius*.45f,cx-radius*.05f,cy+radius*.45f,paint);
+            canvas.drawLine(cx-radius*.35f,cy+radius*.15f,cx-radius*.35f,cy+radius*.75f,paint);
+            canvas.drawLine(cx+radius*.35f,cy+radius*.3f,cx+radius*.75f,cy+radius*.3f,paint);
+            canvas.drawLine(cx+radius*.35f,cy+radius*.65f,cx+radius*.75f,cy+radius*.65f,paint);
         } else if ("STATISTICS".equals(id) || "DISTRIBUTION".equals(id)) {
             canvas.drawLine(cx - radius * 1.5f, cy + radius, cx + radius * 1.5f, cy + radius, paint);
             canvas.drawRect(cx - radius * 1.2f, cy, cx - radius * 0.6f, cy + radius, paint);
@@ -320,28 +366,49 @@ public final class CalculatorView extends View {
             canvas.drawRect(cx - radius * 1.4f, cy - radius, cx + radius * 1.4f, cy + radius, paint);
             canvas.drawLine(cx, cy - radius, cx, cy + radius, paint);
             canvas.drawLine(cx - radius * 1.4f, cy, cx + radius * 1.4f, cy, paint);
-        } else if ("MATRIX".equals(id) || "VECTOR".equals(id)) {
-            iconPath.reset();
-            iconPath.moveTo(cx - radius, cy - radius);
-            iconPath.lineTo(cx - radius * 1.4f, cy - radius);
-            iconPath.lineTo(cx - radius * 1.4f, cy + radius);
-            iconPath.lineTo(cx - radius, cy + radius);
-            iconPath.moveTo(cx + radius, cy - radius);
-            iconPath.lineTo(cx + radius * 1.4f, cy - radius);
-            iconPath.lineTo(cx + radius * 1.4f, cy + radius);
-            iconPath.lineTo(cx + radius, cy + radius);
-            canvas.drawPath(iconPath, paint);
-            canvas.drawCircle(cx, cy, dp(1.3f), paint);
-        } else {
-            canvas.drawCircle(cx, cy, radius * 1.15f, paint);
+        } else if ("MATRIX".equals(id)) {
+            for (int side = -1; side <= 1; side += 2) {
+                float edge = cx + side * radius * 1.3f;
+                canvas.drawLine(edge, cy-radius, edge, cy+radius, paint);
+                canvas.drawLine(edge, cy-radius, edge-side*radius*.35f, cy-radius, paint);
+                canvas.drawLine(edge, cy+radius, edge-side*radius*.35f, cy+radius, paint);
+            }
             paint.setStyle(Paint.Style.FILL);
-            paint.setTypeface(FACE_BOLD);
-            paint.setTextSize(sp(7.5f));
+            for(int row=-1;row<=1;row+=2) for(int col=-1;col<=1;col+=2)
+                canvas.drawCircle(cx+col*radius*.45f,cy+row*radius*.5f,dp(1.5f),paint);
+        } else if ("EQUATION".equals(id) || "INEQUALITY".equals(id)) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTypeface(FACE_NORMAL);
+            paint.setTextSize(sp(18f));
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(id.substring(0, 1), cx,
+            canvas.drawText("EQUATION".equals(id) ? "x = y" : "x < y", cx,
+                    centeredBaseline(cy - radius, cy + radius), paint);
+        } else if ("VECTOR".equals(id) || "COMPLEX".equals(id)) {
+            canvas.drawLine(cx-radius,cy+radius,cx+radius*1.2f,cy+radius,paint);
+            canvas.drawLine(cx-radius,cy+radius,cx-radius,cy-radius*1.2f,paint);
+            canvas.drawLine(cx-radius,cy+radius,cx+radius*.8f,cy-radius*.8f,paint);
+            if ("VECTOR".equals(id)) {
+                canvas.drawLine(cx+radius*.8f,cy-radius*.8f,cx+radius*.1f,cy-radius*.8f,paint);
+                canvas.drawLine(cx+radius*.8f,cy-radius*.8f,cx+radius*.8f,cy-radius*.1f,paint);
+            } else {
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(cx+radius*.8f,cy-radius*.8f,dp(2),paint);
+            }
+        } else {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTypeface(FACE_MEDIUM);
+            paint.setTextSize(sp("BASE_N".equals(id) ? 15f : 20f));
+            paint.setTextAlign(Paint.Align.CENTER);
+            String symbol = switch(id) {
+                case "BASE_N" -> "01";
+                case "RATIO" -> "a:b";
+                default -> "ƒ";
+            };
+            canvas.drawText(symbol, cx,
                     centeredBaseline(cy - radius, cy + radius), paint);
         }
         paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawMenuScreen(Canvas canvas, RectF lcd) {
@@ -396,21 +463,26 @@ public final class CalculatorView extends View {
         float contentTop = lcd.top + lcd.height() * 0.145f;
         float contentBottom = lcd.bottom - dp(3);
         float available = lcd.width() - dp(12);
-        boolean showExpandedAnsProcess = state.resultShown()
+        CnCwModeEngine.ModeResult structuredResult = state.resultShown()
+                && state.hasStructuredApplicationResult() ? state.applicationResult() : null;
+        boolean showExpandedAnsProcess = structuredResult == null
+                && state.resultShown()
                 && state.expression().contains("Ans")
                 && !machine.calculationProcessDisplay().isBlank();
-        if (showExpandedAnsProcess) {
-            drawInspectionProcess(canvas, machine.calculationProcessDisplay(), lcd,
-                    contentTop, contentBottom, available);
-        } else {
-            drawNaturalExpression(canvas, state.naturalExpression(), lcd, contentTop,
-                    contentBottom, available);
+        if (structuredResult == null) {
+            if (showExpandedAnsProcess) {
+                drawInspectionProcess(canvas, machine.calculationProcessDisplay(), lcd,
+                        contentTop, contentBottom, available);
+            } else {
+                drawNaturalExpression(canvas, state.naturalExpression(), lcd, contentTop,
+                        contentBottom, available);
+            }
+            if (state.hasSelection()) {
+                drawSelectionHandles(canvas, lcd, contentTop, contentBottom);
+            }
         }
-        if (state.hasSelection()) {
-            drawSelectionHandles(canvas, lcd, contentTop, contentBottom);
-        }
-        if (state.resultShown() && state.hasStructuredApplicationResult()) {
-            drawStructuredApplicationResult(canvas, state.applicationResult(), lcd,
+        if (structuredResult != null && structuredResult.layout() != CnCwModeEngine.ResultLayout.TEXT) {
+            drawStructuredApplicationResult(canvas, structuredResult, lcd,
                     contentTop, contentBottom, available);
         } else if (state.resultShown() && !state.result().isEmpty()) {
             String[] lines = decimalDisplayResult(state.result()).split("\\n", -1);
@@ -498,28 +570,62 @@ public final class CalculatorView extends View {
                 paint.setTypeface(selected ? FACE_MEDIUM : FACE_NORMAL);
                 paint.setTextAlign(Paint.Align.CENTER);
                 paint.setTextSize(sp(10.5f));
-                String value = selected ? cleanClipboardText(state.displayText())
+                String value = input.isChoiceCell(row, column)
+                        ? input.displayCell(row, column)
+                        : selected ? cleanClipboardText(state.displayText())
                         : input.cell(row, column);
                 canvas.drawText(ellipsize(value, cellWidth - dp(5f)),
                         scratch.centerX(), centeredBaseline(top, top + cellHeight), paint);
             }
         }
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(LCD_INK);
-        paint.setTypeface(FACE_NORMAL);
-        paint.setTextAlign(Paint.Align.RIGHT);
-        paint.setTextSize(sp(8f));
-        String hint = workflowShapeAdjustable(input)
-                ? "SHIFT+方向 调整尺寸 · OK 下一格 · EXE 计算"
-                : "OK 下一格 · EXE 计算";
-        canvas.drawText(ellipsize(hint, lcd.width() - dp(12)), lcd.right - dp(6),
-                lcd.bottom - dp(3), paint);
+        drawWorkflowActionBar(canvas, lcd, input);
+    }
+
+    private void drawWorkflowActionBar(Canvas canvas, RectF lcd,
+                                       CnCwWorkflowSession.Snapshot input) {
+        List<CnCwWorkflowAction> actions = input.actions();
+        for (int index = 0; index < actions.size(); index++) {
+            CnCwWorkflowAction action = actions.get(index);
+            RectF bounds = workflowActionBounds(lcd, actions.size(), index);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(action.enabled() ? Color.argb(42, 24, 58, 45)
+                    : Color.argb(14, 24, 58, 45));
+            canvas.drawRoundRect(bounds, dp(2f), dp(2f), paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(0.65f));
+            paint.setColor(action.enabled() ? Color.argb(145, 24, 58, 45)
+                    : Color.argb(50, 24, 58, 45));
+            canvas.drawRoundRect(bounds, dp(2f), dp(2f), paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(action.enabled() ? LCD_INK : Color.argb(105, 24, 58, 45));
+            paint.setTypeface(action.type() == CnCwWorkflowAction.Type.EXECUTE
+                    ? FACE_BOLD : FACE_NORMAL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(sp(actions.size() >= 5 ? 7.6f : 8.2f));
+            canvas.drawText(ellipsize(action.label(), bounds.width() - dp(4f)),
+                    bounds.centerX(), centeredBaseline(bounds.top, bounds.bottom), paint);
+        }
     }
 
     private RectF workflowGridBounds(RectF lcd) {
         float top = lcd.top + lcd.height() * 0.22f;
-        float bottom = lcd.bottom - dp(18f);
+        float bottom = lcd.bottom - dp(50f);
         return new RectF(lcd.left + dp(6f), top, lcd.right - dp(6f), bottom);
+    }
+
+    private RectF workflowActionBarBounds(RectF lcd) {
+        return new RectF(lcd.left + dp(6f), lcd.bottom - dp(45f),
+                lcd.right - dp(6f), lcd.bottom - dp(3f));
+    }
+
+    private RectF workflowActionBounds(RectF lcd, int count, int index) {
+        RectF bar = workflowActionBarBounds(lcd);
+        int columns = Math.max(1, count);
+        float gap = dp(1.5f);
+        float width = (bar.width() - gap * (columns - 1)) / columns;
+        float left = bar.left + index * (width + gap);
+        return new RectF(left, bar.top, left + width, bar.bottom);
     }
 
     private String workflowColumnLabel(CnCwWorkflowSession.Snapshot input, int column) {
@@ -577,10 +683,39 @@ public final class CalculatorView extends View {
         int visibleRow = Math.min(visibleRows - 1,
                 Math.max(0, (int) ((y - grid.top - headerHeight) / cellHeight)));
         int row = startRow + visibleRow;
+        invalidateEvaluation();
         state = machine.selectWorkflowCell(row, column);
         performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
         postInvalidateOnAnimation();
         return true;
+    }
+
+    private boolean selectWorkflowActionAt(float x, float y) {
+        if (!state.hasWorkflowInput() || state.resultShown()) return false;
+        CnCwWorkflowSession.Snapshot input = state.workflowInput();
+        List<CnCwWorkflowAction> actions = input.actions();
+        RectF lcd = displayBounds(getWidth());
+        for (int index = 0; index < actions.size(); index++) {
+            RectF bounds = workflowActionBounds(lcd, actions.size(), index);
+            if (!bounds.contains(x, y)) continue;
+            CnCwWorkflowAction action = actions.get(index);
+            if (!action.enabled()) {
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                return true;
+            }
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            if (action.type() == CnCwWorkflowAction.Type.EXECUTE) {
+                dispatchKey(CnCwKey.EXE);
+            } else if (action.type() == CnCwWorkflowAction.Type.BACK) {
+                dispatchKey(CnCwKey.BACK);
+            } else {
+                invalidateEvaluation();
+                state = machine.performWorkflowAction(action.type());
+                postInvalidateOnAnimation();
+            }
+            return true;
+        }
+        return false;
     }
 
     /** Renders core-owned application results without parsing display strings. */
@@ -591,7 +726,7 @@ public final class CalculatorView extends View {
         switch (result.layout()) {
             case KEY_VALUE -> drawKeyValueResult(canvas, result, lcd, contentTop, contentBottom, available);
             case MATRIX, VECTOR -> drawGridResult(canvas, result, lcd, contentTop, contentBottom, available);
-            case TABLE -> drawKeyValueResult(canvas, result, lcd, contentTop, contentBottom, available);
+            case TABLE -> drawTableResult(canvas, result, lcd, contentTop, contentBottom, available);
             case TEXT -> { }
         }
     }
@@ -599,7 +734,7 @@ public final class CalculatorView extends View {
     private void drawKeyValueResult(Canvas canvas, CnCwModeEngine.ModeResult result,
                                     RectF lcd, float contentTop, float contentBottom,
                                     float available) {
-        float resultTop = contentTop + (contentBottom - contentTop) * 0.52f;
+        float resultTop = contentTop + dp(12f);
         paint.setColor(LCD_INK);
         paint.setTypeface(FACE_BOLD);
         paint.setTextAlign(Paint.Align.LEFT);
@@ -633,6 +768,105 @@ public final class CalculatorView extends View {
         }
     }
 
+    private int tableVisibleRows(CnCwModeEngine.ModeResult result) {
+        return Math.max(1, Math.min(4, result == null ? 1 : result.rows()));
+    }
+
+    private void drawTableResult(Canvas canvas, CnCwModeEngine.ModeResult result,
+                                 RectF lcd, float contentTop, float contentBottom,
+                                 float available) {
+        int rows = result.rows();
+        int columns = result.columns();
+        if (rows <= 0 || columns <= 0 || result.cells().size() != rows * columns) {
+            drawKeyValueResult(canvas, result, lcd, contentTop, contentBottom, available);
+            return;
+        }
+        if (tableResult != result) {
+            tableResult = result;
+            tableFirstRow = 0;
+        }
+        int visibleRows = tableVisibleRows(result);
+        int maxStart = Math.max(0, rows - visibleRows);
+        tableFirstRow = Math.max(0, Math.min(tableFirstRow, maxStart));
+
+        float resultTop = contentTop + (contentBottom - contentTop) * 0.43f;
+        float titleBottom = resultTop + dp(14f);
+        float headerHeight = dp(14f);
+        float gridTop = titleBottom;
+        float gridBottom = contentBottom - dp(11f);
+        float gridLeft = lcd.left + dp(7f);
+        float gridRight = lcd.right - dp(rows > visibleRows ? 7f : 5f);
+        float cellWidth = (gridRight - gridLeft) / columns;
+        float rowHeight = Math.max(dp(10f),
+                (gridBottom - gridTop - headerHeight) / visibleRows);
+
+        paint.setColor(LCD_INK);
+        paint.setTypeface(FACE_BOLD);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(sp(10.5f));
+        canvas.drawText(ellipsize(result.title(), available * 0.58f),
+                gridLeft, resultTop + dp(10f), paint);
+        paint.setTextAlign(Paint.Align.RIGHT);
+        paint.setTypeface(FACE_NORMAL);
+        paint.setTextSize(sp(8.5f));
+        String range = (tableFirstRow + 1) + "–"
+                + Math.min(rows, tableFirstRow + visibleRows) + "/" + rows;
+        canvas.drawText(range, gridRight, resultTop + dp(10f), paint);
+
+        for (int column = 0; column < columns; column++) {
+            float left = gridLeft + column * cellWidth;
+            paint.setColor(Color.argb(38, 24, 58, 45));
+            canvas.drawRect(left, gridTop, left + cellWidth, gridTop + headerHeight, paint);
+            paint.setColor(LCD_INK);
+            paint.setTypeface(FACE_BOLD);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(sp(9f));
+            String heading = column < result.items().size()
+                    ? result.items().get(column).label() : Integer.toString(column + 1);
+            canvas.drawText(ellipsize(heading, cellWidth - dp(3f)),
+                    left + cellWidth * 0.5f,
+                    centeredBaseline(gridTop, gridTop + headerHeight), paint);
+        }
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(0.55f));
+        paint.setColor(Color.argb(95, 24, 58, 45));
+        for (int vr = 0; vr < visibleRows; vr++) {
+            int row = tableFirstRow + vr;
+            if (row >= rows) break;
+            float top = gridTop + headerHeight + vr * rowHeight;
+            for (int column = 0; column < columns; column++) {
+                float left = gridLeft + column * cellWidth;
+                scratch.set(left, top, left + cellWidth, top + rowHeight);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(vr % 2 == 0
+                        ? Color.argb(12, 24, 58, 45) : Color.TRANSPARENT);
+                canvas.drawRect(scratch, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setColor(Color.argb(72, 24, 58, 45));
+                canvas.drawRect(scratch, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(LCD_INK);
+                paint.setTypeface(FACE_MEDIUM);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTextSize(sp(columns >= 3 ? 9.2f : 10f));
+                String value = result.cells().get(row * columns + column);
+                canvas.drawText(ellipsize(value, cellWidth - dp(4f)),
+                        scratch.centerX(), centeredBaseline(top, top + rowHeight), paint);
+            }
+        }
+        paint.setStyle(Paint.Style.FILL);
+        if (rows > visibleRows) {
+            drawScrollBar(canvas, lcd, tableFirstRow, visibleRows, rows,
+                    gridTop + headerHeight, gridTop + headerHeight + visibleRows * rowHeight);
+        }
+        paint.setColor(LCD_INK);
+        paint.setTypeface(FACE_NORMAL);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(sp(7.8f));
+        canvas.drawText("↑↓逐行  Page↑↓翻页", gridLeft, contentBottom - dp(1f), paint);
+    }
+
     private void drawGridResult(Canvas canvas, CnCwModeEngine.ModeResult result,
                                 RectF lcd, float contentTop, float contentBottom,
                                 float available) {
@@ -642,7 +876,7 @@ public final class CalculatorView extends View {
             drawKeyValueResult(canvas, result, lcd, contentTop, contentBottom, available);
             return;
         }
-        float resultTop = contentTop + (contentBottom - contentTop) * 0.48f;
+        float resultTop = contentTop + dp(12f);
         float gridBottom = result.items().isEmpty()
                 ? contentBottom - dp(2f) : contentBottom - dp(20f);
         float gridLeft = lcd.left + dp(14f);
@@ -1028,7 +1262,9 @@ public final class CalculatorView extends View {
         if (exponent.startsWith("(") && exponent.endsWith(")") && exponent.length() > 2) {
             exponent = exponent.substring(1, exponent.length() - 1);
         }
-        if (mantissa.isEmpty() || exponent.isEmpty()) return false;
+        // E inside an error message or a complex/expression result is not an exponent.
+        if (!SCI_MANTISSA.matcher(mantissa).matches()
+                || !SCI_EXPONENT.matcher(exponent).matches()) return false;
 
         float baseSize = sp(34f);
         float minBaseSize = sp(14f);
@@ -1428,13 +1664,24 @@ public final class CalculatorView extends View {
         int pointerId = event.getPointerId(actionIndex);
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) cancelGestures();
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN
                         && displayBounds(getWidth()).contains(event.getX(), event.getY())) {
+                    if (state.screen() == CnCwScreen.HOME) {
+                        homePointerId = pointerId;
+                        pressedHomeIndex = homeItemAt(event.getX(), event.getY());
+                        pressedHomeViewport = state.homeViewportStart();
+                        homeDownX = event.getX(); homeDownY = event.getY();
+                        return true;
+                    }
                     if (state.hasWorkflowInput() && !state.resultShown()) {
-                        selectWorkflowCellAt(event.getX(), event.getY());
+                        if (!selectWorkflowActionAt(event.getX(), event.getY())) {
+                            selectWorkflowCellAt(event.getX(), event.getY());
+                        }
                         return true;
                     }
                     displayPressed = true;
+                    displayPointerId = pointerId;
                     displaySelectionMode = false;
                     displayLongPressTriggered = false;
                     selectionTapCandidate = false;
@@ -1444,7 +1691,7 @@ public final class CalculatorView extends View {
                     lastDragCursor = state.cursor();
                     lastDragSemantic = state.semanticCursor();
 
-                    if (state.hasSelection()) {
+                    if (!isStructuredResultScreen() && state.hasSelection()) {
                         RectF lcd = displayBounds(getWidth());
                         float contentTop = lcd.top + lcd.height() * 0.145f;
                         float contentBottom = lcd.bottom - dp(3);
@@ -1493,8 +1740,8 @@ public final class CalculatorView extends View {
                         if (displayPressed) {
                             performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                             displayLongPressTriggered = true;
-                            if (state.resultShown() && state.hasAns()
-                                    && isResultBand(displayDownY)) {
+                            if (isStructuredResultScreen() || (state.resultShown() && state.hasAns()
+                                    && isResultBand(displayDownY))) {
                                 // A long-press on the lower result line must expose the
                                 // clipboard actions directly. Previously it tried to select
                                 // the expression above, making “复制 Ans” effectively unreachable.
@@ -1516,6 +1763,7 @@ public final class CalculatorView extends View {
                             }
                             CnCwCursorPath anchor = displaySemanticPosition(
                                     displayDownX, displayDownY);
+                            invalidateEvaluation();
                             state = machine.selectTouchWord(anchor);
                             lastDragCursor = state.cursor();
                             lastDragSemantic = state.semanticCursor();
@@ -1536,13 +1784,23 @@ public final class CalculatorView extends View {
                 return true;
             }
             case MotionEvent.ACTION_MOVE -> {
+                if (homePointerId >= 0) {
+                    int index = event.findPointerIndex(homePointerId);
+                    if (index < 0 || Math.abs(event.getX(index) - homeDownX) >= dp(10)
+                            || Math.abs(event.getY(index) - homeDownY) >= dp(10)) pressedHomeIndex = -1;
+                    return true;
+                }
                 if (displayPressed) {
+                    int displayIndex = event.findPointerIndex(displayPointerId);
+                    if (displayIndex < 0) return true;
+                    float displayX = event.getX(displayIndex);
+                    float displayY = event.getY(displayIndex);
                     if (displaySelectionMode) {
-                        moveSelectionBoundaryToDisplayPosition(event.getX(), event.getY());
+                        moveSelectionBoundaryToDisplayPosition(displayX, displayY);
                         return true;
                     }
-                    float dx = event.getX() - displayDownX;
-                    float dy = event.getY() - displayDownY;
+                    float dx = displayX - displayDownX;
+                    float dy = displayY - displayDownY;
                     if (selectionTapCandidate) {
                         if (Math.abs(dx) > dp(10) || Math.abs(dy) > dp(10)) {
                             selectionTapCandidate = false;
@@ -1551,15 +1809,35 @@ public final class CalculatorView extends View {
                     }
                     if (Math.abs(dx) > dp(4) && Math.abs(dx) > Math.abs(dy)) {
                         if (displayLongPress != null) gestureHandler.removeCallbacks(displayLongPress);
-                        moveCursorToDisplayPosition(event.getX(), event.getY(), true);
+                        moveCursorToDisplayPosition(displayX, displayY, true);
                     }
                     return true;
                 }
                 return true;
             }
             case MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                if (displayPressed && event.getActionMasked() == MotionEvent.ACTION_UP) {
+                // Every pointer owns its release, including the last key finger
+                // after a display finger has already left the screen.
+                touchRouter.pointerUp(pointerId);
+                if (pointerId == repeatingPointerId) stopKeyRepeat();
+                if (pointerId == homePointerId) {
+                    int index = pressedHomeIndex;
+                    homePointerId = -1; pressedHomeIndex = -1;
+                    if (index >= 0 && state.screen() == CnCwScreen.HOME
+                            && state.homeViewportStart() == pressedHomeViewport
+                            && homeItemAt(event.getX(actionIndex), event.getY(actionIndex)) == index
+                            && Math.abs(event.getX(actionIndex) - homeDownX) < dp(10)
+                            && Math.abs(event.getY(actionIndex) - homeDownY) < dp(10)) {
+                        invalidateEvaluation();
+                        state = machine.activateHomeItem(index);
+                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                        performClick(); postInvalidateOnAnimation();
+                    }
+                    return true;
+                }
+                if (displayPressed && pointerId == displayPointerId) {
                     displayPressed = false;
+                    displayPointerId = -1;
                     if (displayLongPress != null) gestureHandler.removeCallbacks(displayLongPress);
                     if (displaySelectionMode || displayLongPressTriggered) {
                         displaySelectionMode = false;
@@ -1570,8 +1848,8 @@ public final class CalculatorView extends View {
                         postInvalidateOnAnimation();
                         return true;
                     }
-                    float dx = event.getX() - displayDownX;
-                    float dy = event.getY() - displayDownY;
+                    float dx = event.getX(actionIndex) - displayDownX;
+                    float dy = event.getY(actionIndex) - displayDownY;
                     if (selectionTapCandidate) {
                         selectionTapCandidate = false;
                         if (Math.abs(dx) < dp(12) && Math.abs(dy) < dp(12)) {
@@ -1580,25 +1858,16 @@ public final class CalculatorView extends View {
                         return true;
                     }
                     if (Math.abs(dx) < dp(18) && Math.abs(dy) < dp(18)) {
-                        moveCursorToDisplayPosition(event.getX(), event.getY(), false);
+                        moveCursorToDisplayPosition(event.getX(actionIndex), event.getY(actionIndex), false);
                     }
                     return true;
                 }
-                touchRouter.pointerUp(pointerId);
-                if (pointerId == repeatingPointerId) stopKeyRepeat();
                 if (event.getActionMasked() == MotionEvent.ACTION_UP) performClick();
                 postInvalidateOnAnimation();
                 return true;
             }
             case MotionEvent.ACTION_CANCEL -> {
-                displayPressed = false;
-                displaySelectionMode = false;
-                displayLongPressTriggered = false;
-                selectionTapCandidate = false;
-                selectionDragEdge = 0;
-                if (displayLongPress != null) gestureHandler.removeCallbacks(displayLongPress);
-                stopKeyRepeat();
-                touchRouter.cancelAll();
+                cancelGestures();
                 postInvalidateOnAnimation();
                 return true;
             }
@@ -1634,6 +1903,22 @@ public final class CalculatorView extends View {
         repeatingPointerId = -1;
     }
 
+    /** No delayed input is allowed to survive a lost gesture or inactive window. */
+    private void cancelGestures() {
+        homePointerId = -1;
+        pressedHomeIndex = -1;
+        displayPressed = false;
+        displayPointerId = -1;
+        displaySelectionMode = false;
+        displayLongPressTriggered = false;
+        selectionTapCandidate = false;
+        selectionDragEdge = 0;
+        if (displayLongPress != null) gestureHandler.removeCallbacks(displayLongPress);
+        displayLongPress = null;
+        stopKeyRepeat();
+        touchRouter.cancelAll();
+    }
+
     private boolean isRepeatableKey(CnCwKey key) {
         return switch (key) {
             case DEL, DOT, DIGIT_0, DIGIT_1, DIGIT_2, DIGIT_3, DIGIT_4,
@@ -1643,6 +1928,7 @@ public final class CalculatorView extends View {
     }
 
     private void moveCursorToDisplayPosition(float x, float y, boolean haptic) {
+        if (isStructuredResultScreen()) return;
         moveCursorAtomically(displaySemanticPosition(x, y), haptic);
     }
 
@@ -1860,6 +2146,7 @@ public final class CalculatorView extends View {
             else return;
         }
         if (target.equals(lastDragSemantic)) return;
+        invalidateEvaluation();
         state = selectionDragEdge < 0
                 ? machine.moveTouchSelectionStart(target)
                 : machine.moveTouchSelectionEnd(target);
@@ -1873,6 +2160,7 @@ public final class CalculatorView extends View {
     private void moveCursorAtomically(CnCwCursorPath target, boolean haptic) {
         if (target == null) target = CnCwCursorPath.rootBoundary(state.cursor());
         if (haptic && target.equals(lastDragSemantic)) return;
+        invalidateEvaluation();
         state = machine.moveCursorTo(target);
         lastDragCursor = state.cursor();
         lastDragSemantic = state.semanticCursor();
@@ -1911,8 +2199,8 @@ public final class CalculatorView extends View {
         boolean hasSelection = state.hasSelection();
         boolean hasAns = state.hasAns();
         List<String> actions = new ArrayList<>();
-        if (hasSelection) actions.add("复制选区");
-        actions.add("复制计算过程");
+        if (hasSelection && !isStructuredResultScreen()) actions.add("复制选区");
+        if (!isStructuredResultScreen()) actions.add("复制计算过程");
         actions.add("复制计算结果");
         if (hasAns) actions.add("复制 Ans");
         actions.add("粘贴");
@@ -1985,6 +2273,7 @@ public final class CalculatorView extends View {
         CharSequence value = clipboard.getPrimaryClip().getItemAt(0).coerceToText(getContext());
         if (value == null) return;
 
+        invalidateEvaluation();
         int accepted = machine.pasteExpression(value.toString());
         state = machine.state();
         postInvalidateOnAnimation();
@@ -2010,20 +2299,36 @@ public final class CalculatorView extends View {
     }
 
     private void dispatchKey(CnCwKey key) {
-        long revision = ++inputRevision;
-        cancelPendingEvaluation();
-        if (key == CnCwKey.EXE && state.screen().isApplication()
-                && !state.applicationLanding()) {
+        if (handleTableResultNavigation(key)) return;
+        // Input mutations invalidate this request through the shared revision gate.
+        // Keep identical in-flight work, including a result awaiting its UI callback.
+        if (evaluating && pendingEvaluation != null && key == pendingEvaluationKey) return;
+        long revision = invalidateEvaluation();
+        if (machine.requiresEvaluation(key)) {
             CnCwMachine snapshot = machine.copyForEvaluation();
             evaluating = true;
+            pendingEvaluationKey = key;
             postInvalidateOnAnimation();
             pendingEvaluation = evaluationExecutor.submit(() -> {
-                CnCwUiState next = snapshot.dispatch(key);
+                CnCwUiState next;
+                try {
+                    next = snapshot.dispatch(key);
+                } catch (CancellationException cancelled) {
+                    post(() -> {
+                        if (revision != inputRevision) return;
+                        pendingEvaluation = null;
+                        pendingEvaluationKey = null;
+                        evaluating = false;
+                        postInvalidateOnAnimation();
+                    });
+                    return;
+                }
                 post(() -> {
                     if (revision != inputRevision) return;
                     machine = snapshot;
                     state = next;
                     pendingEvaluation = null;
+                    pendingEvaluationKey = null;
                     evaluating = false;
                     postInvalidateOnAnimation();
                 });
@@ -2037,18 +2342,69 @@ public final class CalculatorView extends View {
         postInvalidateOnAnimation();
     }
 
+    private boolean handleTableResultNavigation(CnCwKey key) {
+        if (!state.resultShown() || !state.hasStructuredApplicationResult()) return false;
+        CnCwModeEngine.ModeResult result = state.applicationResult();
+        if (result == null || result.layout() != CnCwModeEngine.ResultLayout.TABLE) return false;
+        int visibleRows = tableVisibleRows(result);
+        int delta = switch (key) {
+            case UP -> -1;
+            case DOWN -> 1;
+            case PAGE_UP -> -visibleRows;
+            case PAGE_DOWN -> visibleRows;
+            default -> 0;
+        };
+        if (delta == 0) return false;
+        if (tableResult != result) {
+            tableResult = result;
+            tableFirstRow = 0;
+        }
+        int maxStart = Math.max(0, result.rows() - visibleRows);
+        int next = Math.max(0, Math.min(maxStart, tableFirstRow + delta));
+        if (next != tableFirstRow) {
+            tableFirstRow = next;
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        }
+        postInvalidateOnAnimation();
+        return true;
+    }
+
     private void cancelPendingEvaluation() {
         if (pendingEvaluation != null) {
             pendingEvaluation.cancel(true);
             pendingEvaluation = null;
         }
         evaluating = false;
+        pendingEvaluationKey = null;
+    }
+
+    /** All View-to-machine edits share the same stale-result gate. */
+    private long invalidateEvaluation() {
+        inputRevision++;
+        cancelPendingEvaluation();
+        return inputRevision;
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasWindowFocus) {
+        super.onWindowFocusChanged(hasWindowFocus);
+        if (!hasWindowFocus) {
+            cancelGestures();
+            invalidateEvaluation();
+            postInvalidateOnAnimation();
+        }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (evaluationExecutor.isShutdown()) evaluationExecutor = createEvaluationExecutor();
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        inputRevision++;
-        cancelPendingEvaluation();
+        cancelGestures();
+        invalidateEvaluation();
         evaluationExecutor.shutdownNow();
         super.onDetachedFromWindow();
     }

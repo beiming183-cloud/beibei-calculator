@@ -38,6 +38,10 @@ jobs:
       - name: 构建开发调试 APK
         run: ./gradlew :app:assembleCn991Debug
 
+      - name: 验证输入取消与后台任务边界
+        shell: pwsh
+        run: ./app/src/hostTest/run.ps1 -AndroidSdk $env:ANDROID_HOME
+
       - name: 保存开发调试 APK
         uses: actions/upload-artifact@v4
         with:

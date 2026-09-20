@@ -1,0 +1,30 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources NO-SOURCE
+> Task :core:classes UP-TO-DATE
+> Task :core:compileRegressionJava
+> Task :core:processRegressionResources NO-SOURCE
+> Task :core:regressionClasses
+
+> Task :core:cwNumericalSafetyTest FAILED
+FAIL real cubic roots have no invented imaginary component: java.lang.AssertionError: expected=0.0 actual=-1.9259299443872359E-34
+FAIL irrational real roots are classified in the engine: java.lang.AssertionError: expected=0.0 actual=-1.3063536590459955E-26
+FAIL quartic real-root result is clean without formatter truncation: java.lang.AssertionError
+Exception in thread "main" java.lang.AssertionError: 3 numerical safety failures
+	at com.codex.fx991.core.CnCwNumericalSafetySuite.main(CnCwNumericalSafetySuite.java:19)
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':core:cwNumericalSafetyTest'.
+> Process 'command 'C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot\bin\java.exe'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+3 actionable tasks: 2 executed, 1 up-to-date
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 7s

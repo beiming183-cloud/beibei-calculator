@@ -1,5 +1,7 @@
 # CN CW feature coverage
 
+> **历史文档提示（2026-09-19）**：下方矩阵记录的是 0.3.1 阶段，不再代表当前 UI 完成度或包名。当前源码为 `0.3.18`，正式包名 `com.beibei.calculator`（Debug 增加 `.debug`）；函数表、系数输入、频数统计、矩阵/向量记忆、Base-N 表单已有后续实现。最新已验证范围、审查反例及未完成验收以 [Stage 6 接力文档](hand-offs/STAGE6_RELAY.md)和[审查修复记录](audits/2026-09-19/FIXES.md)为准。本轮不宣称完整说明书一致性。
+
 This matrix is the honest implementation boundary for the cn991 clean-room
 rebuild at version `0.3.1`; no 999 APK is part of this release.  The source of
 truth for the feature list is the 991 sections of the supplied

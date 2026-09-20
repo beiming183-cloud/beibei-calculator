@@ -165,9 +165,10 @@ public final class CnCwModeEngineSuite {
 
         var ratio = evaluate(ApplicationMode.RATIO, "a:b=x:d", "3,8,12");
         near(4.5, ratio.primaryValue(), 0.0, "ratio unknown");
-        equal(CnCwModeEngine.ResultLayout.TEXT, ratio.layout(),
-                "unmigrated ratio keeps text compatibility layout");
-        check(!ratio.hasGrid(), "text result does not expose a grid");
+        equal(CnCwModeEngine.ResultLayout.KEY_VALUE, ratio.layout(),
+                "ratio publishes structured key-value layout");
+        equal("X", ratio.items().get(0).label(), "ratio result label");
+        equal("4.5", ratio.items().get(0).value(), "ratio result value");
     }
 
     private CnCwModeEngine.ModeResult evaluate(ApplicationMode mode, String command, String source) {

@@ -1,0 +1,21 @@
+Complex verify i^2=-1 (expected True) => expr=i^2=-1 result=Argument ERROR phase=ERROR verify=true ans=0.0 status=按 OK、返回或 AC 回到错误位置
+Complex verify without relation => expr=i^2 result=-1 phase=RESULT verify=true ans=-1.0 status=复数
+Calculate verification overwrites Ans? => expr=1=1 result=True phase=RESULT verify=true ans=1.0 status=计算
+Recall earlier 1/2 => expr=1/2 result=1/2 phase=RESULT verify=false ans=0.3333333333333333 status=历史 1/2
+Earlier 1/2 FORMAT improper (expected 1/2) => expr=1/2 result=1/3 phase=RESULT verify=false ans=0.3333333333333333 status=计算
+Complex user-entry log(100) => expr=log(100) result=4.605170186 phase=RESULT verify=false ans=4.605170185988092 status=复数
+Complex user-entry 0^0.5 => expr=0^0.5 result=NaN+NaNi phase=RESULT verify=false ans=NaN status=复数
+Complex user-entry ln(0) => expr=ln(0) result=-INFINITY phase=RESULT verify=false ans=-Infinity status=复数
+Tools app=0 verify=true
+Tools app=1 verify=true
+Tools app=2 verify=true
+Tools app=3 verify=true
+Tools app=4 verify=true
+Tools app=5 verify=true
+Tools app=6 verify=true
+Tools app=7 verify=true
+Tools app=8 verify=true
+Tools app=9 verify=true
+Already-interrupted sum: calls=10000 result=5.0005E7 stillInterrupted=true
+Canceled old job, new result available=false
+Next result=2 old job continued iterations=10000

@@ -17,7 +17,7 @@ public final class ComplexValue {
     }
 
     public static ComplexValue polar(double radius, double angleRadians) {
-        return new ComplexValue(radius * Math.cos(angleRadians), radius * Math.sin(angleRadians));
+        return new ComplexValue(radius * AngleTrig.cosRadians(angleRadians), radius * AngleTrig.sinRadians(angleRadians));
     }
 
     public double real() { return real; }
@@ -61,17 +61,21 @@ public final class ComplexValue {
 
     public ComplexValue exp() {
         double magnitude = Math.exp(real);
-        return new ComplexValue(magnitude * Math.cos(imaginary), magnitude * Math.sin(imaginary));
+        return new ComplexValue(magnitude * AngleTrig.cosRadians(imaginary), magnitude * AngleTrig.sinRadians(imaginary));
     }
 
     public ComplexValue log() {
+        if (real == 0.0 && imaginary == 0.0) throw new ArithmeticException("Logarithm of zero");
         return new ComplexValue(Math.log(abs()), argument());
     }
 
     public ComplexValue pow(int exponent) { return pow((long) exponent); }
 
     public ComplexValue pow(long exponent) {
-        if (exponent == 0) return ONE;
+        if (exponent == 0) {
+            if (real == 0.0 && imaginary == 0.0) throw new ArithmeticException("Zero to zero power");
+            return ONE;
+        }
         if (exponent == Long.MIN_VALUE) {
             return ONE.divide(powPositive(Long.MAX_VALUE).multiply(this));
         }
@@ -84,14 +88,20 @@ public final class ComplexValue {
             if (exponent > 0.0) return ZERO;
             throw new ArithmeticException("Zero to non-positive power");
         }
+        if (exponent == 0.5) return sqrt();
+        if (exponent == -0.5) return ONE.divide(sqrt());
         return log().multiply(exponent).exp();
     }
 
     public ComplexValue sqrt() {
         if (imaginary == 0.0 && real >= 0.0) return new ComplexValue(Math.sqrt(real), 0.0);
         double magnitude = abs();
-        double realPart = Math.sqrt((magnitude + real) / 2.0);
-        double imaginaryPart = Math.copySign(Math.sqrt((magnitude - real) / 2.0), imaginary);
+        // Compute the larger component first; |z| - |Re(z)| loses the smaller
+        // component entirely for inputs such as 1 + 1e-10 i.
+        double larger = Math.sqrt(magnitude * 0.5 + Math.abs(real) * 0.5);
+        double realPart = real >= 0.0 ? larger : Math.abs(imaginary) / (2.0 * larger);
+        double imaginaryPart = real >= 0.0 ? imaginary / (2.0 * larger)
+                : Math.copySign(larger, imaginary);
         return new ComplexValue(realPart, imaginaryPart);
     }
 

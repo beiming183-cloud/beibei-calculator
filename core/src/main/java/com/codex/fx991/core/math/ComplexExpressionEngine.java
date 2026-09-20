@@ -16,7 +16,66 @@ public final class ComplexExpressionEngine {
         ComplexValue value = parser.parseExpression();
         parser.skip();
         if (!parser.end()) throw new IllegalArgumentException("Syntax ERROR at " + parser.position);
+        if (!Double.isFinite(value.real()) || !Double.isFinite(value.imaginary())
+                || Math.abs(value.real()) > 9.999999999e99
+                || Math.abs(value.imaginary()) > 9.999999999e99) {
+            throw new ArithmeticException("Complex calculation range");
+        }
         return value;
+    }
+
+    /**
+     * Verifies one top-level relation. Equality uses a relative tolerance of
+     * 1e-12 independently for each component, with no absolute floor at zero;
+     * a small but nonzero imaginary component is never silently made real.
+     */
+    public static boolean verify(String expression, Map<String, ComplexValue> variables,
+                                 ComplexValue ans, AngleUnit angleUnit) {
+        String source = expression == null ? "" : expression;
+        int depth = 0, relationIndex = -1;
+        String relation = null;
+        for (int index = 0; index < source.length(); index++) {
+            char current = source.charAt(index);
+            if (current == '(') { depth++; continue; }
+            if (current == ')') { depth--; continue; }
+            if (depth != 0) continue;
+            String found = null;
+            if (index + 1 < source.length()) {
+                String pair = source.substring(index, index + 2);
+                if (pair.equals("<=") || pair.equals(">=") || pair.equals("!=") || pair.equals("==")) found = pair;
+            }
+            if (found == null && "=≠<>≤≥".indexOf(current) >= 0) found = Character.toString(current);
+            if (found == null) continue;
+            if (relation != null) throw new CalculationException(CalculationError.SYNTAX,
+                    "Complex verification accepts one relation", index);
+            relation = found;
+            relationIndex = index;
+            index += found.length() - 1;
+        }
+        if (relation == null) throw new CalculationException(CalculationError.NO_OPERATOR,
+                "No relational operator", 0);
+        ComplexValue left = evaluate(source.substring(0, relationIndex), variables, ans, angleUnit);
+        ComplexValue right = evaluate(source.substring(relationIndex + relation.length()), variables, ans, angleUnit);
+        boolean equal = equalComponent(left.real(), right.real())
+                && equalComponent(left.imaginary(), right.imaginary());
+        if (relation.equals("=") || relation.equals("==")) return equal;
+        if (relation.equals("!=") || relation.equals("≠")) return !equal;
+        if (left.imaginary() != 0.0 || right.imaginary() != 0.0) {
+            throw new CalculationException(CalculationError.MATH,
+                    "Complex values cannot be ordered", relationIndex);
+        }
+        return switch (relation) {
+            case "<" -> left.real() < right.real();
+            case ">" -> left.real() > right.real();
+            case "<=", "≤" -> left.real() <= right.real();
+            case ">=", "≥" -> left.real() >= right.real();
+            default -> throw new AssertionError(relation);
+        };
+    }
+
+    private static boolean equalComponent(double left, double right) {
+        return left == right || Math.abs(left - right)
+                <= 1e-12 * Math.max(Math.abs(left), Math.abs(right));
     }
 
     private static final class Parser {
@@ -45,14 +104,21 @@ public final class ComplexExpressionEngine {
         }
 
         ComplexValue parseTerm() {
-            ComplexValue value = parseUnary();
+            ComplexValue value = parseImplicitProduct();
             while (true) {
                 skip();
-                if (take('*') || take('×')) value = value.multiply(parseUnary());
-                else if (take('/') || take('÷')) value = value.divide(parseUnary());
-                else if (startsPrimary()) value = value.multiply(parseUnary());
+                if (take('*') || take('×')) value = value.multiply(parseImplicitProduct());
+                else if (take('/') || take('÷')) value = value.divide(parseImplicitProduct());
                 else break;
             }
+            return value;
+        }
+
+        // Same precedence as ScalarExpressionEngine: adjacent factors bind
+        // before explicit multiplication/division. E.g. 1/2i = 1/(2*i).
+        ComplexValue parseImplicitProduct() {
+            ComplexValue value = parseUnary();
+            while (startsPrimary()) value = value.multiply(parseUnary());
             return value;
         }
 
@@ -70,7 +136,8 @@ public final class ComplexExpressionEngine {
                 if (value.imaginary() != 0.0) throw new ArithmeticException("Polar radius must be real");
                 ComplexValue angle = parseUnary();
                 if (angle.imaginary() != 0.0) throw new ArithmeticException("Polar angle must be real");
-                return ComplexValue.polar(value.real(), toRadians(angle.real(), angleUnit));
+                return new ComplexValue(value.real() * AngleTrig.cos(angle.real(), angleUnit),
+                        value.real() * AngleTrig.sin(angle.real(), angleUnit));
             }
             return value;
         }
@@ -86,6 +153,7 @@ public final class ComplexExpressionEngine {
                     }
                     return value.pow((long) exponent.real());
                 }
+                if (exponent.imaginary() == 0.0) return value.pow(exponent.real());
                 return value.log().multiply(exponent).exp();
             }
             return value;
@@ -130,9 +198,14 @@ public final class ComplexExpressionEngine {
                 case "arg" -> new ComplexValue(fromRadians(value.argument(), angleUnit), 0.0);
                 case "sqrt" -> value.sqrt();
                 case "exp" -> value.exp();
-                case "ln", "log" -> value.log();
-                case "sin" -> complexSin(toRadians(value, angleUnit));
-                case "cos" -> complexCos(toRadians(value, angleUnit));
+                case "ln" -> value.log();
+                case "log" -> value.log().multiply(1.0 / Math.log(10.0));
+                case "sin" -> value.imaginary() == 0.0
+                        ? new ComplexValue(AngleTrig.sin(value.real(), angleUnit), 0.0)
+                        : complexSin(toRadians(value, angleUnit));
+                case "cos" -> value.imaginary() == 0.0
+                        ? new ComplexValue(AngleTrig.cos(value.real(), angleUnit), 0.0)
+                        : complexCos(toRadians(value, angleUnit));
                 case "tan" -> {
                     ComplexValue radians = toRadians(value, angleUnit);
                     yield complexSin(radians).divide(complexCos(radians));
@@ -173,21 +246,13 @@ public final class ComplexExpressionEngine {
     }
 
     private static ComplexValue complexSin(ComplexValue z) {
-        return new ComplexValue(Math.sin(z.real()) * Math.cosh(z.imaginary()),
-                Math.cos(z.real()) * Math.sinh(z.imaginary()));
+        return new ComplexValue(AngleTrig.sinRadians(z.real()) * Math.cosh(z.imaginary()),
+                AngleTrig.cosRadians(z.real()) * Math.sinh(z.imaginary()));
     }
 
     private static ComplexValue complexCos(ComplexValue z) {
-        return new ComplexValue(Math.cos(z.real()) * Math.cosh(z.imaginary()),
-                -Math.sin(z.real()) * Math.sinh(z.imaginary()));
-    }
-
-    private static double toRadians(double value, AngleUnit unit) {
-        return switch (unit) {
-            case DEG -> Math.toRadians(value);
-            case RAD -> value;
-            case GRAD -> value * Math.PI / 200.0;
-        };
+        return new ComplexValue(AngleTrig.cosRadians(z.real()) * Math.cosh(z.imaginary()),
+                -AngleTrig.sinRadians(z.real()) * Math.sinh(z.imaginary()));
     }
 
     private static ComplexValue toRadians(ComplexValue value, AngleUnit unit) {

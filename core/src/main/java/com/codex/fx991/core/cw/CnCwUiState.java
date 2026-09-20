@@ -43,6 +43,8 @@ public final class CnCwUiState {
     private final CnCwModeEngine.ModeResult applicationResult;
     /** Stage 5 immutable input-table snapshot; null for the legacy editor. */
     private final CnCwWorkflowSession.Snapshot workflowInput;
+    /** Stage 6 typed calculation phase/result/error snapshot. */
+    private final CnCwCalculationState calculationState;
     private final double ans;
     private final boolean hasAns;
     private final String status;
@@ -84,6 +86,7 @@ public final class CnCwUiState {
                 String result,
                 CnCwModeEngine.ModeResult applicationResult,
                 CnCwWorkflowSession.Snapshot workflowInput,
+                CnCwCalculationState calculationState,
                 double ans,
                 boolean hasAns,
                 String status,
@@ -126,6 +129,7 @@ public final class CnCwUiState {
         this.result = result == null ? "" : result;
         this.applicationResult = applicationResult;
         this.workflowInput = workflowInput;
+        this.calculationState = Objects.requireNonNull(calculationState, "calculationState");
         this.ans = ans;
         this.hasAns = hasAns;
         this.status = status == null ? "" : status;
@@ -210,6 +214,7 @@ public final class CnCwUiState {
     public CnCwModeEngine.ModeResult applicationResult() { return applicationResult; }
     public CnCwWorkflowSession.Snapshot workflowInput() { return workflowInput; }
     public boolean hasWorkflowInput() { return workflowInput != null; }
+    public CnCwCalculationState calculationState() { return calculationState; }
     public boolean hasStructuredApplicationResult() {
         return applicationResult != null
                 && applicationResult.layout() != CnCwModeEngine.ResultLayout.TEXT;

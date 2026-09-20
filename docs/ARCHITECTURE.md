@@ -29,7 +29,7 @@ declared in Gradle and generated `BuildConfig` constants (`MODEL_ID`,
 `HAS_SPREADSHEET`, `APPLICATION_COUNT`); the UI consumes that contract instead
 of inferring features from a package name.
 
-The published ID is `com.codex.cnscientific.calculator991`.  The Java namespace
+The published ID is `com.beibei.calculator`.  The Java namespace
 remains an internal compatibility detail; it is not a claim of affiliation
 with any calculator vendor.
 
@@ -128,6 +128,20 @@ forms and a complete formatter still need to be connected to this document
 boundary.
 
 ## Heavy-work boundary
+
+结构化结果与触摸边界（2026-09-20）：结果页不得渲染或触摸编辑工作流序列化串；结果区域长按进入结果复制，返回键恢复核心表单。主屏卡片绘制/命中共享边界，松手确认后调用核心 `activateHomeItem`，不由 View 自行修改应用状态。[复现、回归和截图](audits/2026-09-20-result-ui/README.md)。
+
+二次回归数值边界（2026-09-20）：`QuadraticRegression` 在平移/缩放坐标中做加权列主元 QR，秩不足或非有限值拒绝。`RegressionResult` 同时持有用于显示的原坐标系数及用于正反预测的不可变局部模型；不要从格式化系数重建预测器。QR 循环响应已有取消/预算检查点，不新增后台任务。[实现和验收](audits/2026-09-20-quadratic/README.md)。
+
+表达式共同语法契约（2026-09-20）：标量和复数均将隐式乘法置于显式乘除之前；`6/2(1+2)=1`，`6/2*(1+2)=9`。复数解析显式消费独立的隐式乘法层；共同语法扩展须补跨引擎数值及机器公开输入差分，不依赖 UI 修补表达式。[规则和验证](audits/2026-09-20-grammar/README.md)。
+
+2026-09-20 更新：后台执行意图由核心只读 `requiresEvaluation(key)` 提供，Android 不按按钮名称猜测；错误关闭和表单换格留在同步编辑路径。实根的确认/细化归求根层负责，不等式消费该分类，显示层不得用统一小量截断判定数学上的零。科学记数法绘制仅接受完整数字格式，不把错误文本中的 E 作为指数。[第二轮修复、设备截图和功耗边界](audits/2026-09-20/README.md)。
+
+2026-09-19 更新：普通表达式的 EXE、OK、ENTER 均通过后台快照求值；结构化表单的 OK/ENTER 下一格仍是同步编辑。键盘、粘贴、触摸光标/选区、选格统一使旧求值 revision 失效。AC、失焦和窗口销毁会取消旧任务，手势按 pointerId 独立释放，清理延迟长按和重复输入。
+
+核心 `evaluate()` 打开线程内共享 `CalculationBudget`，嵌套/并列数值分析沿用同一预算：100 万次函数取值、2 秒。检查点响应中断；超预算沿用 `TIMEOUT`，取消原样抛出 `CancellationException`，不得被展示为语法错误。预算不是可强杀任意代码的系统 watchdog；计算必须经过协作检查点。正常误差容限不降低，实际功耗仍需设备实测。
+
+当前 FORMAT 从正在显示的 typed 结果读取值，不从最新 Ans 猜值；历史回看、转换和恢复显示不会覆盖 Ans。工作流求值的序列化整表内容只用于求值，错误退出时重新加载选中单格，防止写回污染。详见[本轮修复](audits/2026-09-19/FIXES.md)。
 
 Fast navigation/editing executes inline.  EXE evaluation runs through an
 isolated, cancellable snapshot boundary in the Android adapter:

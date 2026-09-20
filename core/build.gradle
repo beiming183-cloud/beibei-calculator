@@ -55,6 +55,46 @@ tasks.register('cwWorkflowSpecTest', JavaExec) {
     dependsOn tasks.named('regressionClasses')
 }
 
+tasks.register('cwCalculationStateTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs Stage 6 typed calculation phase/result/error compatibility checks.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.CnCwCalculationStateSuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
+tasks.register('cwWorkflowValidationTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs Stage 6 workflow cell validation and error-location checks.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.CnCwWorkflowValidationSuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
+tasks.register('cwStage6AcceptanceTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs Stage 6 end-to-end inequality, ratio and workflow acceptance guards.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.CnCwStage6AcceptanceSuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
+tasks.register('cwFunctionalityTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs functionality-first guards for formerly partial user-visible commands.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.CnCwFunctionalitySuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
+tasks.register('cwCompletenessTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs user-entry completeness guards for complex, catalogs and formatter settings.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.CnCwCompletenessSuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
 tasks.register('manualFunctionsTest', JavaExec) {
     group = 'verification'
     description = 'Runs ÷R, DMS, Pol/Rec, engineering and multi-statement checks.'
@@ -87,12 +127,44 @@ tasks.register('cwCursorPathTest', JavaExec) {
     dependsOn tasks.named('regressionClasses')
 }
 
+tasks.register('cwAuditStateTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs public-entry audit regressions for workflow, history and verification state.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.CnCwAuditStateSuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
+tasks.register('numericBudgetTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs bounded numerical cancellation, deadline and shared-work regressions.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.NumericBudgetSuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
+tasks.register('cwNumericalSafetyTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs numerical correctness and finite-result audit regressions.'
+    classpath = sourceSets.regression.runtimeClasspath
+    mainClass = 'com.codex.fx991.core.CnCwNumericalSafetySuite'
+    dependsOn tasks.named('regressionClasses')
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('cwAuditStateTest')
+    dependsOn tasks.named('numericBudgetTest')
+    dependsOn tasks.named('cwNumericalSafetyTest')
     dependsOn tasks.named('regressionTest')
     dependsOn tasks.named('cwRegressionTest')
     dependsOn tasks.named('cwSemanticTest')
     dependsOn tasks.named('cwModeRegressionTest')
     dependsOn tasks.named('cwWorkflowSpecTest')
+    dependsOn tasks.named('cwCalculationStateTest')
+    dependsOn tasks.named('cwWorkflowValidationTest')
+    dependsOn tasks.named('cwStage6AcceptanceTest')
+    dependsOn tasks.named('cwFunctionalityTest')
+    dependsOn tasks.named('cwCompletenessTest')
     dependsOn tasks.named('manualFunctionsTest')
     dependsOn tasks.named('cwLayoutMetricsTest')
     dependsOn tasks.named('cwAutoCloseTest')

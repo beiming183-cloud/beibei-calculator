@@ -1,0 +1,19 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS OK is evaluated off the main thread
+PASS ENTER is evaluated off the main thread
+PASS paste invalidates a queued result
+PASS paste rejects an already posted old result
+PASS touch cursor invalidates a queued result
+PASS touch selection invalidates a queued result
+PASS workflow cell selection invalidates a queued result
+PASS workflow OK advances synchronously before next input
+PASS crossed display/key release stops repeat
+PASS ordinary held key repeats only until release
+PASS focus loss stops repeat
+PASS focus loss cancels a queued calculation
+PASS detach stops repeat
+PASS reattached view can evaluate again

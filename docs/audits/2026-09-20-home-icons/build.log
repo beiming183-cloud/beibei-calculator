@@ -1,0 +1,67 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preCn991DebugBuild UP-TO-DATE
+> Task :app:mergeCn991DebugNativeDebugMetadata NO-SOURCE
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources NO-SOURCE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :app:generateCn991DebugBuildConfig UP-TO-DATE
+> Task :app:javaPreCompileCn991Debug UP-TO-DATE
+> Task :app:checkCn991DebugAarMetadata UP-TO-DATE
+> Task :app:generateCn991DebugResValues UP-TO-DATE
+> Task :app:mapCn991DebugSourceSetPaths UP-TO-DATE
+> Task :app:generateCn991DebugResources UP-TO-DATE
+> Task :app:mergeCn991DebugResources UP-TO-DATE
+> Task :app:packageCn991DebugResources UP-TO-DATE
+> Task :app:parseCn991DebugLocalResources UP-TO-DATE
+> Task :app:createCn991DebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksCn991Debug UP-TO-DATE
+> Task :app:processCn991DebugMainManifest UP-TO-DATE
+> Task :app:processCn991DebugManifest UP-TO-DATE
+> Task :app:processCn991DebugManifestForPackage UP-TO-DATE
+> Task :app:processCn991DebugResources UP-TO-DATE
+
+> Task :app:compileCn991DebugJavaWithJavac
+
+> Task :app:mergeCn991DebugShaders UP-TO-DATE
+> Task :app:compileCn991DebugShaders NO-SOURCE
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+> Task :app:generateCn991DebugAssets UP-TO-DATE
+> Task :app:mergeCn991DebugAssets UP-TO-DATE
+> Task :app:compressCn991DebugAssets UP-TO-DATE
+> Task :app:desugarCn991DebugFileDependencies UP-TO-DATE
+> Task :app:dexBuilderCn991Debug
+> Task :app:mergeCn991DebugGlobalSynthetics UP-TO-DATE
+> Task :app:processCn991DebugJavaRes NO-SOURCE
+> Task :app:mergeCn991DebugJavaResource UP-TO-DATE
+> Task :app:checkCn991DebugDuplicateClasses UP-TO-DATE
+> Task :app:mergeExtDexCn991Debug UP-TO-DATE
+> Task :app:mergeLibDexCn991Debug UP-TO-DATE
+> Task :app:mergeCn991DebugJniLibFolders UP-TO-DATE
+> Task :app:mergeCn991DebugNativeLibs NO-SOURCE
+> Task :app:stripCn991DebugDebugSymbols NO-SOURCE
+> Task :app:validateSigningCn991Debug UP-TO-DATE
+> Task :app:writeCn991DebugAppMetadata UP-TO-DATE
+> Task :app:writeCn991DebugSigningConfigVersions UP-TO-DATE
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :app:preCn991DebugAndroidTestBuild SKIPPED
+> Task :app:generateCn991DebugAndroidTestResValues UP-TO-DATE
+> Task :app:bundleCn991DebugClassesToCompileJar
+> Task :app:mergeProjectDexCn991Debug
+> Task :app:generateCn991DebugLintReportModel
+> Task :app:packageCn991Debug
+> Task :app:createCn991DebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleCn991Debug
+> Task :app:lintAnalyzeCn991Debug
+
+> Task :app:lintReportCn991Debug
+Wrote HTML report to file:///D:/Codex/Projects/fx991-stage6-audit/app/build/reports/lint-results-cn991Debug.html
+
+> Task :app:lintCn991Debug
+
+BUILD SUCCESSFUL in 16s
+41 actionable tasks: 9 executed, 32 up-to-date

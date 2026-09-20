@@ -1,0 +1,24 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava
+> Task :core:processResources NO-SOURCE
+> Task :core:classes
+
+> Task :core:compileRegressionJava FAILED
+D:\Codex\Projects\fx991-stage6-audit\core\src\regression\java\com\codex\fx991\core\CnCwAuditStateSuite.java:178: ����: ������ CnCwAuditStateSuite�ж����˷��� sharedBudget()
+    private void sharedBudget() {
+                 ^
+1 ������
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':core:compileRegressionJava'.
+> Compilation failed; see the compiler error output for details.
+
+* Try:
+> Run with --info option to get more log output.
+> Run with --scan to get full insights.
+
+BUILD FAILED in 11s
+2 actionable tasks: 2 executed

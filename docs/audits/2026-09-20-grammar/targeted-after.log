@@ -1,0 +1,20 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava
+> Task :core:processResources NO-SOURCE
+> Task :core:classes
+> Task :core:compileRegressionJava UP-TO-DATE
+> Task :core:processRegressionResources NO-SOURCE
+> Task :core:regressionClasses UP-TO-DATE
+
+> Task :core:cwNumericalSafetyTest
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS 93 numerical safety checks
+
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+> Task :core:cwAuditStateTest
+PASS 88 audit state checks
+
+BUILD SUCCESSFUL in 8s
+4 actionable tasks: 3 executed, 1 up-to-date

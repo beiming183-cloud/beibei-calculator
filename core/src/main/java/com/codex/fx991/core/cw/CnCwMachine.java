@@ -6,6 +6,7 @@ import com.codex.fx991.core.math.ComplexExpressionEngine;
 import com.codex.fx991.core.math.ComplexValue;
 import com.codex.fx991.core.math.CalculationError;
 import com.codex.fx991.core.math.CalculationException;
+import com.codex.fx991.core.math.CalculationBudget;
 import com.codex.fx991.core.math.ExactValue;
 import com.codex.fx991.core.math.ManualFunctions;
 import com.codex.fx991.core.math.Rational;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.CancellationException;
 
 /**
  * Android-free CN CW shell and fast expression controller.
@@ -51,6 +53,7 @@ public final class CnCwMachine {
     private final Deque<Navigation> navigation = new ArrayDeque<>();
     private final List<HistoryEntry> history = new ArrayList<>();
     private final List<Token> tokens = new ArrayList<>();
+    private final CnCwLinearAlgebraMemory linearAlgebraMemory = new CnCwLinearAlgebraMemory();
     private final SpreadsheetModel spreadsheet;
     private boolean spreadsheetGrid;
     private int spreadsheetRow;
@@ -60,6 +63,8 @@ public final class CnCwMachine {
 
     private CnCwScreen screen = CnCwScreen.HOME;
     private ApplicationMode application;
+    /** App that was active immediately before HOME, used for MatAns/VctAns lifetime rules. */
+    private ApplicationMode applicationBeforeHome;
     private CnCwSettings settings = CnCwSettings.defaults();
     private int selectedIndex;
     private int cursor;
@@ -80,6 +85,8 @@ public final class CnCwMachine {
     private CnCwModeEngine.ModeResult applicationResult;
     /** Stage 5 structured input editor; null keeps the legacy expression bridge. */
     private CnCwWorkflowSession workflowSession;
+    /** Last explicitly committed Stage 6 result/error payload. */
+    private CnCwCalculationState committedCalculationState = CnCwCalculationState.editing();
     private String status = "HOME";
     private String activeCommandId = "";
     private double ans;
@@ -129,9 +136,11 @@ public final class CnCwMachine {
         navigation.addAll(source.navigation);
         history.addAll(source.history);
         tokens.addAll(source.tokens);
+        linearAlgebraMemory.copyFrom(source.linearAlgebraMemory);
 
         screen = source.screen;
         application = source.application;
+        applicationBeforeHome = source.applicationBeforeHome;
         settings = source.settings;
         selectedIndex = source.selectedIndex;
         cursor = source.cursor;
@@ -148,6 +157,7 @@ public final class CnCwMachine {
         result = source.result;
         applicationResult = source.applicationResult;
         workflowSession = source.workflowSession == null ? null : source.workflowSession.copy();
+        committedCalculationState = source.committedCalculationState;
         status = source.status;
         activeCommandId = source.activeCommandId;
         ans = source.ans;
@@ -725,6 +735,13 @@ public final class CnCwMachine {
                 {"root(", "√[ ](", "root("},
                 {"diff(", "d/dx(", "diff("},
                 {"sum(", "Σ(", "sum("},
+                {"conjugate(", "Conjg(", "conj("},
+                {"conj(", "Conjg(", "conj("},
+                {"real(", "Re(", "re("},
+                {"imag(", "Im(", "im("},
+                {"arg(", "Arg(", "arg("},
+                {"re(", "Re(", "re("},
+                {"im(", "Im(", "im("},
                 {"abs(", "Abs(", "abs("},
                 {"dms(", "DMS(", "dms("},
                 {"pol(", "Pol(", "pol("},
@@ -771,6 +788,7 @@ public final class CnCwMachine {
         applicationResult = null;
         screen = CnCwScreen.HOME;
         application = null;
+        applicationBeforeHome = null;
         settings = CnCwSettings.defaults();
         selectedIndex = 0;
         cursor = 0;
@@ -822,18 +840,31 @@ public final class CnCwMachine {
             exactVariables.put(name, ExactValue.ZERO);
         }
         spreadsheet.clearAll();
+        linearAlgebraMemory.clear();
         undoTokens = null;
         publish();
         return state;
     }
 
+    /** Direct application selection from the currently visible HOME viewport. */
+    public CnCwUiState activateHomeItem(int index) {
+        if (poweredOn && screen == CnCwScreen.HOME && index >= 0 && index < model.applications().size()) {
+            selectedIndex = index;
+            openApplication(model.applications().get(index));
+            publish();
+        }
+        return state;
+    }
+
     private void handleHome(CnCwKey key) {
         int size = model.applications().size();
+        int visible = Math.min(HOME_VIEWPORT_SIZE, size - (selectedIndex / HOME_VIEWPORT_SIZE) * HOME_VIEWPORT_SIZE);
+        int columns = visible <= 4 ? 2 : HOME_COLUMNS;
         selectedIndex = switch (key) {
             case LEFT -> wrap(selectedIndex - 1, size);
             case RIGHT -> wrap(selectedIndex + 1, size);
-            case UP -> wrap(selectedIndex - HOME_COLUMNS, size);
-            case DOWN -> wrap(selectedIndex + HOME_COLUMNS, size);
+            case UP -> wrap(selectedIndex - columns, size);
+            case DOWN -> wrap(selectedIndex + columns, size);
             case PAGE_UP -> wrap(selectedIndex - HOME_VIEWPORT_SIZE, size);
             case PAGE_DOWN -> wrap(selectedIndex + HOME_VIEWPORT_SIZE, size);
             default -> selectedIndex;
@@ -863,6 +894,18 @@ public final class CnCwMachine {
             case FORMAT -> switchPopup(CnCwScreen.FORMAT);
             default -> { }
         }
+    }
+
+    /**
+     * Read-only scheduling contract. The core owns command meaning; adapters
+     * must not guess from key labels whether OK dismisses, advances or evaluates.
+     */
+    public boolean requiresEvaluation(CnCwKey key) {
+        if (!poweredOn || !screen.isApplication() || applicationLanding || engineeringMode) return false;
+        if (key != CnCwKey.EXE && key != CnCwKey.OK && key != CnCwKey.ENTER) return false;
+        if (errorShown && (key == CnCwKey.OK || key == CnCwKey.ENTER)) return false;
+        if (workflowSession != null) return key == CnCwKey.EXE;
+        return !tokens.isEmpty();
     }
 
     private void handleApplication(CnCwKey key) {
@@ -1063,6 +1106,19 @@ public final class CnCwMachine {
         clearExpression();
         applicationLanding = false;
         activeCommandId = command.id();
+        if ((application == ApplicationMode.MATRIX && command.id().equals("matrix-ans"))
+                || (application == ApplicationMode.VECTOR && command.id().equals("vector-ans"))) {
+            try {
+                CnCwModeEngine.ModeResult modeResult = linearAlgebraMemory.answer(application);
+                applicationResult = modeResult;
+                double scalar = modeResult.primaryValue() == null
+                        ? (hasAns ? ans : 0.0) : modeResult.primaryValue();
+                commitSuccessfulResult(modeResult.display(), scalar, null, "", true, false);
+            } catch (IllegalArgumentException error) {
+                commitCalculationError(CalculationError.ARGUMENT, 0);
+            }
+            return;
+        }
         CnCwWorkflowSpec.WorkflowSpec workflowSpec =
                 CnCwWorkflowSpec.forCommand(application, command.id());
         workflowSession = workflowSpec == null ? null : CnCwWorkflowSession.create(workflowSpec);
@@ -1081,7 +1137,21 @@ public final class CnCwMachine {
             spreadsheet.recalculate();
             result = "重新计算完成\n剩余 " + spreadsheet.remainingBytes() + " bytes";
             resultShown = true;
+            committedCalculationState = CnCwCalculationState.textResult(result);
         }
+    }
+
+    /** Executes one core-owned workflow action without duplicating layout rules in Android. */
+    public CnCwUiState performWorkflowAction(CnCwWorkflowAction.Type type) {
+        if (type == null || workflowSession == null || resultShown) return state;
+        if (type == CnCwWorkflowAction.Type.EXECUTE) return dispatch(CnCwKey.EXE);
+        if (type == CnCwWorkflowAction.Type.BACK) return dispatch(CnCwKey.BACK);
+        commitWorkflowCell();
+        boolean changed = workflowSession.applyAction(type);
+        if (changed) loadWorkflowCell();
+        status = changed ? workflowStatus() : "操作不可用 · " + workflowStatus();
+        publish();
+        return state;
     }
 
     /** Direct-touch entry point for a Stage 5 input-table cell. */
@@ -1136,6 +1206,41 @@ public final class CnCwMachine {
             return true;
         }
 
+        // Preserve the historical comma bridge for ratio mode.
+        if (key == CnCwKey.COMMA
+                && workflowSession.spec().mode() == ApplicationMode.RATIO
+                && workflowSession.selectedRow() == 0
+                && workflowSession.selectedColumn() == 0) {
+            workflowSession = null;
+            status = "比例 · 兼容逗号输入";
+            return false;
+        }
+
+        if (workflowSession.selectedIsChoice() && !shiftArmed) {
+            if (key == CnCwKey.LEFT || key == CnCwKey.UP
+                    || key == CnCwKey.RIGHT || key == CnCwKey.DOWN) {
+                int delta = (key == CnCwKey.LEFT || key == CnCwKey.UP) ? -1 : 1;
+                workflowSession.cycleSelectedChoice(delta);
+                tokens.clear();
+                cursor = 0;
+                semanticCursorOverride = null;
+                status = workflowStatus();
+                return true;
+            }
+            if (key == CnCwKey.DEL) {
+                workflowSession.resetSelectedChoice();
+                tokens.clear();
+                cursor = 0;
+                semanticCursorOverride = null;
+                status = workflowStatus();
+                return true;
+            }
+            if (isEntryKey(key)) {
+                status = "用方向键选择 · " + workflowStatus();
+                return true;
+            }
+        }
+
         if (shiftArmed && (key == CnCwKey.UP || key == CnCwKey.DOWN
                 || key == CnCwKey.LEFT || key == CnCwKey.RIGHT)) {
             commitWorkflowCell();
@@ -1183,10 +1288,18 @@ public final class CnCwMachine {
         if (key == CnCwKey.EXE) {
             shiftArmed = false;
             commitWorkflowCell();
-            if (!workflowSession.isComplete()) {
-                workflowSession.selectFirstBlank();
+            CnCwWorkflowValidation.Report validation =
+                    CnCwWorkflowValidation.validate(workflowSession);
+            if (!validation.ready()) {
+                workflowSession.selectCell(validation.firstProblemRow(),
+                        validation.firstProblemColumn());
                 loadWorkflowCell();
-                status = "还有空白项 · " + workflowStatus();
+                CnCwWorkflowValidation.CellState problem = validation.cell(
+                        validation.firstProblemRow(), validation.firstProblemColumn(),
+                        workflowSession.columns());
+                status = problem.status() == CnCwWorkflowValidation.Status.EMPTY
+                        ? "还有空白项 · " + workflowStatus()
+                        : "输入格式错误 · " + workflowStatus();
                 return true;
             }
             String source = workflowSession.legacySource();
@@ -1207,7 +1320,7 @@ public final class CnCwMachine {
     }
 
     private void commitWorkflowCell() {
-        if (workflowSession == null || resultShown) return;
+        if (workflowSession == null || resultShown || workflowSession.selectedIsChoice()) return;
         String source = evaluationSource().replace("\u2063", "");
         workflowSession.setSelectedCell(source);
     }
@@ -1218,7 +1331,7 @@ public final class CnCwMachine {
         semanticCursorOverride = null;
         clearSelection();
         String source = workflowSession.selectedCell();
-        if (!com.codex.fx991.core.Compat.isBlank(source)) {
+        if (!workflowSession.selectedIsChoice() && !com.codex.fx991.core.Compat.isBlank(source)) {
             List<Token> imported = parsePastedTokens(source);
             if (imported != null) tokens.addAll(imported);
         }
@@ -1251,32 +1364,35 @@ public final class CnCwMachine {
 
     private boolean resizeWorkflowFromShift(CnCwKey key) {
         CnCwWorkflowSpec.InputLayout layout = workflowSession.spec().layout();
-        int rows = workflowSession.rows();
-        int columns = workflowSession.columns();
+        CnCwWorkflowAction.Type action = null;
         if (layout == CnCwWorkflowSpec.InputLayout.GRID
                 || layout == CnCwWorkflowSpec.InputLayout.VECTOR_SET) {
-            if (key == CnCwKey.UP) rows--;
-            else if (key == CnCwKey.DOWN) rows++;
-            else if (key == CnCwKey.LEFT) columns--;
-            else if (key == CnCwKey.RIGHT) columns++;
-            return workflowSession.resizeGrid(rows, columns);
-        }
-        if (layout == CnCwWorkflowSpec.InputLayout.COEFFICIENTS
+            action = switch (key) {
+                case UP -> CnCwWorkflowAction.Type.DECREASE_ROWS;
+                case DOWN -> CnCwWorkflowAction.Type.INCREASE_ROWS;
+                case LEFT -> CnCwWorkflowAction.Type.DECREASE_COLUMNS;
+                case RIGHT -> CnCwWorkflowAction.Type.INCREASE_COLUMNS;
+                default -> null;
+            };
+        } else if (layout == CnCwWorkflowSpec.InputLayout.COEFFICIENTS
                 && workflowSession.spec().mode() == ApplicationMode.EQUATION) {
-            if ("simultaneous".equals(workflowSession.spec().commandId())) {
-                if (key == CnCwKey.UP) return workflowSession.setEquationDimension(rows - 1);
-                if (key == CnCwKey.DOWN) return workflowSession.setEquationDimension(rows + 1);
-                return false;
-            }
-            if (key == CnCwKey.UP) return workflowSession.resizeGrid(rows - 1, columns);
-            if (key == CnCwKey.DOWN) return workflowSession.resizeGrid(rows + 1, columns);
+            action = switch (key) {
+                case UP -> CnCwWorkflowAction.Type.DECREASE_ROWS;
+                case DOWN -> CnCwWorkflowAction.Type.INCREASE_ROWS;
+                default -> null;
+            };
         }
-        return false;
+        return action != null && workflowSession.applyAction(action);
     }
 
     private String workflowStatus() {
         if (workflowSession == null) return applicationStatus();
-        return workflowSession.spec().title() + " · "
+        CnCwWorkflowSpec.FieldSpec field = workflowSession.selectedField();
+        String fieldLabel = field == null ? ""
+                : " · " + field.label()
+                + (workflowSession.selectedIsChoice()
+                ? "=" + workflowSession.selectedDisplayCell() : "");
+        return workflowSession.spec().title() + fieldLabel + " · "
                 + (workflowSession.selectedRow() + 1) + ","
                 + (workflowSession.selectedColumn() + 1);
     }
@@ -1296,8 +1412,7 @@ public final class CnCwMachine {
             resultShown = false;
             status = spreadsheetAddress() + " 已清除";
         } catch (RuntimeException error) {
-            result = "Math ERROR";
-            resultShown = true;
+            commitCalculationError(CalculationError.MATH, 0);
         }
     }
 
@@ -1640,7 +1755,7 @@ public final class CnCwMachine {
                     || (hasComplexAns && plainSource.contains("Ans"));
         errorShown = false;
         lastError = null;
-        try {
+        try (CalculationBudget.Scope budget = CalculationBudget.open()) {
             if (!pendingFunctionDefinition.isEmpty()) {
                 ScalarExpressionEngine.CompiledExpression definition =
                         ScalarExpressionEngine.compile(source);
@@ -1655,6 +1770,7 @@ public final class CnCwMachine {
                 status = "已定义 " + pendingFunctionDefinition + "(x)";
                 pendingFunctionDefinition = "";
                 resultShown = true;
+                committedCalculationState = CnCwCalculationState.textResult(result);
                 return;
             }
             String formatted;
@@ -1667,6 +1783,20 @@ public final class CnCwMachine {
                 formatted = valid ? "True" : "False";
                 scalar = valid ? 1.0 : 0.0;
                 exactScalar = ExactValue.integer(valid ? 1 : 0);
+            } else if (verificationMode && application == ApplicationMode.COMPLEX) {
+                Map<String, ComplexValue> complexVariables = new HashMap<>();
+                for (Map.Entry<String, Double> entry : variables.entrySet()) {
+                    complexVariables.put(entry.getKey(), new ComplexValue(entry.getValue(), 0.0));
+                }
+                boolean valid = ComplexExpressionEngine.verify(plainSource, complexVariables,
+                        hasComplexAns ? complexAns
+                                : hasAns ? new ComplexValue(ans, 0.0) : ComplexValue.ZERO,
+                        settings.angleUnit());
+                formatted = valid ? "True" : "False";
+                scalar = valid ? 1.0 : 0.0;
+                exactScalar = ExactValue.integer(valid ? 1 : 0);
+                storeAnswer = false;
+                complexEvaluation = false;
             } else if (application == ApplicationMode.CALCULATE
                     && hasStatementOperator(source)) {
                 String statement = source;
@@ -1694,8 +1824,24 @@ public final class CnCwMachine {
                 scalar = modeResult.primaryValue() == null
                         ? (hasAns ? ans : 0.0) : modeResult.primaryValue();
             } else if (!com.codex.fx991.core.Compat.isBlank(activeCommandId) && isStructuredWorkflow(application)) {
-                CnCwModeEngine.ModeResult modeResult = CnCwModeEngine.evaluate(
-                        application, activeCommandId, plainSource, evaluationContext());
+                CnCwModeEngine.ModeResult modeResult;
+                if (linearAlgebraMemory.handles(application, activeCommandId)) {
+                    modeResult = linearAlgebraMemory.evaluate(application, activeCommandId,
+                            workflowSession == null ? null : workflowSession.snapshot(),
+                            evaluationContext());
+                } else {
+                    modeResult = CnCwModeEngine.evaluate(
+                            application, activeCommandId, plainSource, evaluationContext());
+                }
+                applicationResult = modeResult;
+                formatted = modeResult.display();
+                scalar = modeResult.primaryValue() == null
+                        ? (hasAns ? ans : 0.0) : modeResult.primaryValue();
+            } else if (application == ApplicationMode.BASE_N
+                    && workflowSession != null
+                    && CnCwBaseNWorkflow.handles(activeCommandId)) {
+                CnCwModeEngine.ModeResult modeResult = CnCwBaseNWorkflow.evaluate(
+                        activeCommandId, workflowSession.snapshot());
                 applicationResult = modeResult;
                 formatted = modeResult.display();
                 scalar = modeResult.primaryValue() == null
@@ -1789,48 +1935,95 @@ public final class CnCwMachine {
                     formatted = BaseNEngine.format((int) scalar, BaseNEngine.Base.DECIMAL);
                 }
             }
-            String evaluatedProcessDisplay = expandedProcessDisplay(tokens, ansProcessDisplay);
-            resultProcessDisplay = evaluatedProcessDisplay;
-            if (storeAnswer && application != ApplicationMode.INEQUALITY) {
-                ansProcessDisplay = evaluatedProcessDisplay;
-                ans = scalar;
-                hasAns = true;
-                exactAns = exactScalar;
-                if (!complexEvaluation) {
-                    complexAns = new ComplexValue(scalar, 0.0);
-                    hasComplexAns = false;
-                }
+            budget.checkpoint();
+            commitSuccessfulResult(formatted, scalar, exactScalar, completionStatus,
+                    storeAnswer, complexEvaluation);
+        } catch (CancellationException canceled) {
+            // The adapter owns cancellation; never turn an abandoned job into an error result.
+            throw canceled;
+        } catch (CalculationException error) {
+            commitCalculationError(error.error(), error.position());
+        } catch (ArithmeticException error) {
+            commitCalculationError(CalculationError.MATH, 0);
+        } catch (IllegalArgumentException error) {
+            commitCalculationError(CalculationError.ARGUMENT, 0);
+        } catch (RuntimeException error) {
+            commitCalculationError(CalculationError.SYNTAX, 0);
+        }
+    }
+
+    /**
+     * Single success-commit gate for EXE evaluation. Numerical branches only
+     * compute a payload; answer ownership, visible result state and history are
+     * committed here so later Stage 6 steps can replace the legacy fields
+     * without duplicating policy.
+     */
+    private void commitSuccessfulResult(String formatted,
+                                        double scalar,
+                                        ExactValue exactScalar,
+                                        String completionStatus,
+                                        boolean storeAnswer,
+                                        boolean complexEvaluation) {
+        if (!Double.isFinite(scalar)) {
+            throw new CalculationException(CalculationError.MATH, "Non-finite result", 0);
+        }
+        String evaluatedProcessDisplay = expandedProcessDisplay(tokens, ansProcessDisplay);
+        resultProcessDisplay = evaluatedProcessDisplay;
+        if (storeAnswer && application != ApplicationMode.INEQUALITY) {
+            ansProcessDisplay = evaluatedProcessDisplay;
+            ans = scalar;
+            hasAns = true;
+            exactAns = exactScalar;
+            if (!complexEvaluation) {
+                complexAns = new ComplexValue(scalar, 0.0);
+                hasComplexAns = false;
             }
-            lastExactResult = exactScalar;
+        }
+        lastExactResult = exactScalar;
         result = formatted;
         resultShown = true;
         originalResult = formatted;
         formatConverted = false;
         engineeringMode = false;
-            status = !completionStatus.isEmpty() ? completionStatus
-                    : statementSequence.isEmpty() ? applicationStatus()
-                    : "语句 " + Math.min(statementSequenceIndex, statementSequence.size())
-                    + "/" + statementSequence.size();
-            history.add(new HistoryEntry(com.codex.fx991.core.Compat.copyList(tokens), result,
-                    resultProcessDisplay, applicationResult));
-            if (history.size() > 100) history.remove(0);
-            historyIndex = history.size();
-            if (spreadsheetGrid && application == ApplicationMode.SPREADSHEET
-                    && activeCommandId.equals("sheet")) {
-                // EXE commits the cell and returns the editor focus to the
-                // grid, matching a physical spreadsheet's next-key behavior.
-                tokens.clear();
-                cursor = 0;
-            }
-        } catch (CalculationException error) {
-            showError(error.error(), error.position());
-        } catch (ArithmeticException error) {
-            showError(CalculationError.MATH, 0);
-        } catch (IllegalArgumentException error) {
-            showError(CalculationError.ARGUMENT, 0);
-        } catch (RuntimeException error) {
-            showError(CalculationError.SYNTAX, 0);
+        committedCalculationState = successfulCalculationState(
+                formatted, scalar, exactScalar, complexEvaluation);
+        status = !completionStatus.isEmpty() ? completionStatus
+                : statementSequence.isEmpty() ? applicationStatus()
+                : "语句 " + Math.min(statementSequenceIndex, statementSequence.size())
+                + "/" + statementSequence.size();
+        history.add(new HistoryEntry(com.codex.fx991.core.Compat.copyList(tokens), result,
+                resultProcessDisplay, applicationResult, committedCalculationState));
+        if (history.size() > 100) history.remove(0);
+        historyIndex = history.size();
+        if (spreadsheetGrid && application == ApplicationMode.SPREADSHEET
+                && activeCommandId.equals("sheet")) {
+            // EXE commits the cell and returns the editor focus to the grid.
+            tokens.clear();
+            cursor = 0;
         }
+    }
+
+    private CnCwCalculationState successfulCalculationState(String display,
+                                                                  double scalar,
+                                                                  ExactValue exactScalar,
+                                                                  boolean complexEvaluation) {
+        if (applicationResult != null) {
+            return CnCwCalculationState.applicationResult(display, applicationResult);
+        }
+        if (complexEvaluation && hasComplexAns) {
+            return CnCwCalculationState.complexResult(display, complexAns);
+        }
+        if (exactScalar != null) {
+            return CnCwCalculationState.exactResult(display, scalar, exactScalar);
+        }
+        return CnCwCalculationState.scalarResult(display, scalar);
+    }
+
+    private CnCwCalculationState currentAnswerCalculationState(String display) {
+        if (hasComplexAns) return CnCwCalculationState.complexResult(display, complexAns);
+        if (exactAns != null) return CnCwCalculationState.exactResult(display, ans, exactAns);
+        if (hasAns) return CnCwCalculationState.scalarResult(display, ans);
+        return CnCwCalculationState.textResult(display);
     }
 
     private CoordinateCall coordinateCall(String source) {
@@ -1948,13 +2141,17 @@ public final class CnCwMachine {
         return Math.abs(rational.toDouble() - value) <= 1e-12 ? ExactValue.rational(rational) : null;
     }
 
-    private void showError(CalculationError error, int sourcePosition) {
+    /** Single error-commit gate for evaluator and mode/tool failures. */
+    private void commitCalculationError(CalculationError error, int sourcePosition) {
+        applicationResult = null;
+        lastExactResult = null;
         lastError = error;
         errorShown = true;
         errorCursor = tokenCursorForSourcePosition(sourcePosition);
         cursor = errorCursor;
         result = error.display();
         resultShown = true;
+        committedCalculationState = CnCwCalculationState.error(result, error, errorCursor);
         status = "按 OK、返回或 AC 回到错误位置";
     }
 
@@ -2070,12 +2267,20 @@ public final class CnCwMachine {
         result = entry.result;
         resultProcessDisplay = entry.processDisplay;
         applicationResult = entry.applicationResult;
+        committedCalculationState = entry.calculationState;
+        lastExactResult = committedCalculationState.exactValue();
+        originalResult = result;
+        formatConverted = false;
+        engineeringMode = false;
+        errorShown = false;
+        lastError = null;
         resultShown = true;
         status = "历史 " + (historyIndex + 1) + "/" + history.size();
     }
 
     private void clearExpression() {
         rememberUndo();
+        committedCalculationState = CnCwCalculationState.editing();
         applicationResult = null;
         resetStatementSequence();
         tokens.clear();
@@ -2096,6 +2301,13 @@ public final class CnCwMachine {
     }
 
     private void dismissError() {
+        committedCalculationState = CnCwCalculationState.editing();
+        if (workflowSession != null) {
+            // Evaluation tokens contain the whole serialized worksheet, never a single cell.
+            loadWorkflowCell();
+            status = workflowStatus();
+            return;
+        }
         errorShown = false;
         lastError = null;
         result = "";
@@ -2115,6 +2327,7 @@ public final class CnCwMachine {
         applicationResult = null;
         navigation.clear();
         screen = CnCwScreen.HOME;
+        if (application != null) applicationBeforeHome = application;
         application = null;
         activeCommandId = "";
         selectedIndex = 0;
@@ -2129,6 +2342,7 @@ public final class CnCwMachine {
 
     private void powerOff() {
         workflowSession = null;
+        linearAlgebraMemory.clear();
         applicationResult = null;
         navigation.clear();
         screen = CnCwScreen.HOME;
@@ -2153,13 +2367,25 @@ public final class CnCwMachine {
     private void openApplication(ApplicationMode mode) {
         workflowSession = null;
         applicationResult = null;
+        if (applicationBeforeHome != null && applicationBeforeHome != mode) {
+            // The original 991CN CW clears transient answer/verification state when
+            // HOME launches another application, while MatA..MatD/VctA..VctD remain stored.
+            linearAlgebraMemory.clearAnswers();
+            verificationMode = false;
+        }
+        applicationBeforeHome = null;
         application = mode;
         screen = CnCwScreen.forApplication(mode);
         selectedIndex = 0;
         navigation.clear();
         shiftArmed = false;
+        committedCalculationState = CnCwCalculationState.editing();
         result = "";
         resultShown = false;
+        errorShown = false;
+        lastError = null;
+        lastExactResult = null;
+        errorCursor = 0;
         tokens.clear();
         cursor = 0;
         activeCommandId = "";
@@ -2226,6 +2452,10 @@ public final class CnCwMachine {
             case SETTINGS_DISPLAY -> activateSystemSetting(index);
             case RESET_CONFIRM -> activateResetConfirm(index);
             case CATALOG -> {
+                if (application == ApplicationMode.COMPLEX && index == 9) {
+                    openPopup(CnCwScreen.CATALOG_COMPLEX);
+                    break;
+                }
                 openPopup(switch (index) {
                     case 0 -> CnCwScreen.CATALOG_FUNCTIONS;
                     case 1 -> CnCwScreen.CATALOG_PROBABILITY;
@@ -2260,6 +2490,7 @@ public final class CnCwMachine {
             }
             case CATALOG_CONVERSION_ITEMS -> insertFromMenu(conversionToken(index));
             case CATALOG_PROBABILITY -> insertFromMenu(probabilityToken(index));
+            case CATALOG_COMPLEX -> insertFromMenu(complexToken(index));
             case CATALOG_RELATIONS -> insertFromMenu(relationToken(index));
             case TOOLS -> activateTool(index);
             case TOOLS_CONVERSION -> insertFromMenu(conversionToken(index));
@@ -2296,6 +2527,7 @@ public final class CnCwMachine {
         historyIndex = 0;
         resetStatementSequence();
         spreadsheet.clearAll();
+        linearAlgebraMemory.clear();
         tokens.clear();
         cursor = 0;
         result = "";
@@ -2410,6 +2642,7 @@ public final class CnCwMachine {
                 status = "化简 · " + (manualSimplification ? "手动" : "自动");
             }
             case 2 -> {
+                if (!supportsVerification()) return;
                 verificationMode = !verificationMode;
                 history.clear();
                 historyIndex = 0;
@@ -2436,7 +2669,8 @@ public final class CnCwMachine {
     }
 
     private void activateFormat(int index) {
-        if (!hasAns) {
+        CnCwCalculationState valueState = formatSourceState();
+        if (valueState.scalarValue() == null) {
             status = "尚无可转换的结果";
             return;
         }
@@ -2444,44 +2678,58 @@ public final class CnCwMachine {
         if (commands.isEmpty()) return;
         String id = commands.get(Math.max(0, Math.min(index, commands.size() - 1))).id();
         if (!formatConverted) originalResult = result;
-        Rational fraction = exactAns == null ? null : exactAns.rational();
-        if (fraction == null) fraction = Rational.approximate(ans, 1_000_000L, 1e-12);
+        double value = valueState.scalarValue();
+        ExactValue exact = valueState.exactValue();
+        ComplexValue complex = valueState.complexValue();
+        engineeringMode = false;
         result = switch (id) {
-            case "standard" -> formatResult(ans, exactAns, expression(), true);
-            case "decimal" -> formatNumber(ans);
-            case "factor" -> primeFactors(ans);
-            case "improper" -> fraction.improperString();
-            case "mixed" -> fraction.mixedString();
-            case "dms" -> ManualFunctions.fromDecimalDegrees(ans).display();
-            case "rectangular" -> formatComplex(complexAns, false);
-            case "polar" -> formatComplex(complexAns, true);
+            case "standard" -> complex == null ? formatResult(value, exact, expression(), true)
+                    : formatComplex(complex);
+            case "decimal" -> complex == null ? formatNumber(value) : formatComplex(complex);
+            case "factor" -> primeFactors(value);
+            case "improper" -> formatFraction(value, exact).improperString();
+            case "mixed" -> formatFraction(value, exact).mixedString();
+            case "dms" -> ManualFunctions.fromDecimalDegrees(value).display();
+            case "rectangular" -> formatComplex(complex, false);
+            case "polar" -> formatComplex(complex, true);
             case "engineering" -> {
-                engineeringExponent = ans == 0.0 ? 0
-                        : (int) Math.floor(Math.log10(Math.abs(ans)) / 3.0) * 3;
+                engineeringExponent = value == 0.0 ? 0
+                        : (int) Math.floor(Math.log10(Math.abs(value)) / 3.0) * 3;
                 engineeringMode = true;
-                yield engineeringAtExponent(ans, engineeringExponent);
+                yield engineeringAtExponent(value, engineeringExponent);
             }
-            default -> formatNumber(ans);
+            default -> formatNumber(value);
         };
+        if ("Math ERROR".equals(result)) {
+            closeAllPopups();
+            commitCalculationError(CalculationError.MATH, 0);
+            return;
+        }
         formatConverted = true;
         resultShown = true;
+        committedCalculationState = valueState.withDisplay(result);
         status = engineeringMode ? "ENG 模式 · 用 ←/→ 移动小数点" : "格式转换";
         closeAllPopups();
     }
 
     private void restoreOriginalFormat() {
+        CnCwCalculationState valueState = formatSourceState();
         engineeringMode = false;
         formatConverted = false;
         if (!originalResult.isEmpty()) result = originalResult;
         resultShown = !result.isEmpty();
+        if (resultShown) committedCalculationState = valueState.withDisplay(result);
         status = applicationStatus();
     }
 
     private void refreshEngineeringResult() {
+        CnCwCalculationState valueState = formatSourceState();
+        if (valueState.scalarValue() == null) return;
         engineeringExponent = Math.max(-99, Math.min(99, engineeringExponent));
         engineeringExponent -= Math.floorMod(engineeringExponent, 3);
-        result = engineeringAtExponent(ans, engineeringExponent);
+        result = engineeringAtExponent(valueState.scalarValue(), engineeringExponent);
         resultShown = true;
+        committedCalculationState = valueState.withDisplay(result);
         status = "ENG · 10^" + engineeringExponent;
     }
 
@@ -2493,6 +2741,19 @@ public final class CnCwMachine {
             text = text.replace('.', ',');
         }
         return text + "×10^" + exponent;
+    }
+
+    private CnCwCalculationState formatSourceState() {
+        return resultShown ? calculationStateSnapshot() : currentAnswerCalculationState(result);
+    }
+
+    private static Rational formatFraction(double value, ExactValue exact) {
+        Rational fraction = exact == null ? null : exact.rational();
+        return fraction == null ? Rational.approximate(value, 1_000_000L, 1e-12) : fraction;
+    }
+
+    private boolean supportsVerification() {
+        return application == ApplicationMode.CALCULATE || application == ApplicationMode.COMPLEX;
     }
 
     private void insertFromMenu(Token token) {
@@ -2652,6 +2913,15 @@ public final class CnCwMachine {
         return token(value.symbol(), Double.toString(value.value()));
     }
 
+    private Token complexToken(int index) {
+        return switch (index) {
+            case 0 -> token("Conjg(", "conj(");
+            case 1 -> token("Arg(", "arg(");
+            case 2 -> token("Re(", "re(");
+            default -> token("Im(", "im(");
+        };
+    }
+
     private Token probabilityToken(int index) {
         return switch (index) {
             case 0 -> token("%", "%");
@@ -2755,16 +3025,7 @@ public final class CnCwMachine {
                     command("language", "语言", "中文"),
                     command("font", "多行字体", settings.multiLineFont().name()),
                     command("about", "关于", model.displayName()));
-            case CATALOG -> com.codex.fx991.core.Compat.list(
-                    command("analysis", "函数与分析", "导数、积分、求和、对数"),
-                    command("probability", "概率", "%、阶乘、排列组合、随机数"),
-                    command("numeric", "数值计算", "绝对值与四舍五入"),
-                    command("angle", "角度/坐标/六十进制", "角度单位、Pol、Rec、DMS"),
-                    command("trig", "双曲/反双曲/三角", "12 个函数"),
-                    command("engineering", "工程符号", "m、μ、n、p、f、k…"),
-                    command("constants", "科学常数", "47 个 CODATA 2018 常数"),
-                    command("conversion", "单位换算", "40 个换算命令"),
-                    command("other", "其他", "关系、多语句与存储"));
+            case CATALOG -> catalogRootCommands();
             case CATALOG_FUNCTIONS -> com.codex.fx991.core.Compat.list(
                     command("diff", "d/dx(", "导数"), command("integral", "∫(", "积分"),
                     command("sum", "Σ(", "求和"), command("remainder", "÷R", "商和余数"),
@@ -2790,6 +3051,11 @@ public final class CnCwMachine {
             case CATALOG_CONSTANT_ITEMS -> constantCommands();
             case CATALOG_CONVERSIONS -> conversionCategoryCommands();
             case CATALOG_CONVERSION_ITEMS -> conversionCommands();
+            case CATALOG_COMPLEX -> com.codex.fx991.core.Compat.list(
+                    command("conj", "Conjg(", "共轭复数"),
+                    command("arg", "Arg(", "辐角"),
+                    command("re", "Re(", "实部"),
+                    command("im", "Im(", "虚部"));
             case CATALOG_PROBABILITY -> com.codex.fx991.core.Compat.list(
                     command("percent", "%", "百分数"), command("factorial", "!", "阶乘"),
                     command("npr", "nPr", "排列"), command("ncr", "nCr", "组合"),
@@ -2811,9 +3077,12 @@ public final class CnCwMachine {
                     command("store-e", "→E", "赋值"), command("store-f", "→F", "赋值"),
                     command("store-x", "→x", "赋值"), command("store-y", "→y", "赋值"),
                     command("store-z", "→z", "赋值"));
-            case TOOLS -> com.codex.fx991.core.Compat.list(command("undo", "撤消", "恢复上次编辑"),
+            case TOOLS -> supportsVerification()
+                    ? com.codex.fx991.core.Compat.list(command("undo", "撤消", "恢复上次编辑"),
                     command("simplify", "化简", manualSimplification ? "手动" : "自动"),
-                    command("verify", "运算验证", verificationMode ? "开" : "关"));
+                    command("verify", "运算验证", verificationMode ? "开" : "关"))
+                    : com.codex.fx991.core.Compat.list(command("undo", "撤消", "恢复上次编辑"),
+                    command("simplify", "化简", manualSimplification ? "手动" : "自动"));
             case TOOLS_CONVERSION -> com.codex.fx991.core.Compat.list(
                     command("in-cm", "in → cm", "×2.54"), command("cm-in", "cm → in", "÷2.54"),
                     command("lb-kg", "lb → kg", "×0.45359237"), command("kg-lb", "kg → lb", "÷0.45359237"),
@@ -2831,6 +3100,23 @@ public final class CnCwMachine {
             case FORMAT -> formatCommands();
             default -> com.codex.fx991.core.Compat.list();
         };
+    }
+
+    private List<CnCwCommand> catalogRootCommands() {
+        List<CnCwCommand> items = new ArrayList<>(com.codex.fx991.core.Compat.list(
+                command("analysis", "函数与分析", "导数、积分、求和、对数"),
+                command("probability", "概率", "%、阶乘、排列组合、随机数"),
+                command("numeric", "数值计算", "绝对值与四舍五入"),
+                command("angle", "角度/坐标/六十进制", "角度单位、Pol、Rec、DMS"),
+                command("trig", "双曲/反双曲/三角", "12 个函数"),
+                command("engineering", "工程符号", "m、μ、n、p、f、k…"),
+                command("constants", "科学常数", "47 个 CODATA 2018 常数"),
+                command("conversion", "单位换算", "40 个换算命令"),
+                command("other", "其他", "关系、多语句与存储")));
+        if (application == ApplicationMode.COMPLEX) {
+            items.add(command("complex", "复数", "Conjg、Arg、Re、Im"));
+        }
+        return com.codex.fx991.core.Compat.copyList(items);
     }
 
     private static List<CnCwCommand> engineeringCommands() {
@@ -2863,27 +3149,33 @@ public final class CnCwMachine {
     }
 
     private List<CnCwCommand> formatCommands() {
-        if (!hasAns) return com.codex.fx991.core.Compat.list();
+        CnCwCalculationState valueState = formatSourceState();
+        if (valueState.scalarValue() == null || !valueState.isResult()
+                || valueState.hasApplicationResult()) return com.codex.fx991.core.Compat.list();
+        double value = valueState.scalarValue();
+        ExactValue exact = valueState.exactValue();
+        ComplexValue complex = valueState.complexValue();
         List<CnCwCommand> items = new ArrayList<>();
         items.add(command("standard", "标准", "分数、π、√ 格式"));
         items.add(command("decimal", "小数", "小数结果"));
-        if (ans > 0.0 && ans == Math.rint(ans) && ans <= 9_999_999_999L) {
+        if (complex != null) {
+            items.add(command("rectangular", "代数形式", "a+bi"));
+            items.add(command("polar", "极坐标形式", "r∠θ"));
+            if (complex.imaginary() != 0.0) return com.codex.fx991.core.Compat.copyList(items);
+        }
+        if (value > 0.0 && value == Math.rint(value) && value <= 9_999_999_999L) {
             items.add(command("factor", "质因数分解", "最多 10 位正整数"));
         }
-        Rational fraction = exactAns == null ? null : exactAns.rational();
+        Rational fraction = exact == null ? null : exact.rational();
         if (fraction != null) {
             items.add(command("improper", "假分数", "a/b"));
             items.add(command("mixed", "带分数", "a b/c"));
         }
-        if (Double.isFinite(ans)) {
+        if (Double.isFinite(value)) {
             items.add(command("engineering", "工程记数法", "用 ←/→ 移动小数点"));
         }
-        if (Math.abs(ans) <= 9_999_999.999999) {
+        if (Math.abs(value) <= 9_999_999.999999) {
             items.add(command("dms", "六十进制", "度、分、秒"));
-        }
-        if (application == ApplicationMode.COMPLEX && hasComplexAns) {
-            items.add(command("rectangular", "代数形式", "a+bi"));
-            items.add(command("polar", "极坐标形式", "r∠θ"));
         }
         return com.codex.fx991.core.Compat.copyList(items);
     }
@@ -2945,9 +3237,25 @@ public final class CnCwMachine {
         if (mode == null) return com.codex.fx991.core.Compat.list();
         return switch (mode) {
             case CALCULATE -> com.codex.fx991.core.Compat.list(command("calculate", "计算", "输入表达式"));
-            case STATISTICS -> com.codex.fx991.core.Compat.list(command("one", "单变量", "x / 频数"),
-                    command("two", "双变量", "x / y / 频数"),
-                    command("regression", "回归", "七类回归模型"));
+            case STATISTICS -> com.codex.fx991.core.Compat.list(
+                    command("one", "单变量", "x 数据"),
+                    command("two", "双变量", "x / y 数据"),
+                    command("reg-linear", "线性回归", "y=a·x+b"),
+                    command("reg-quadratic", "二次回归", "y=a·x²+b·x+c"),
+                    command("reg-logarithmic", "对数回归", "y=a+b·ln(x)"),
+                    command("reg-e-exponential", "e 指数回归", "y=a·e^(b·x)"),
+                    command("reg-ab-exponential", "ab^x 回归", "y=a·b^x"),
+                    command("reg-power", "幂回归", "y=a·x^b"),
+                    command("reg-inverse", "逆数回归", "y=a+b/x"),
+                    command("one-freq", "单变量（频数）", "x / 频数"),
+                    command("two-freq", "双变量（频数）", "x / y / 频数"),
+                    command("reg-linear-freq", "线性回归（频数）", "x / y / 频数"),
+                    command("reg-quadratic-freq", "二次回归（频数）", "x / y / 频数"),
+                    command("reg-logarithmic-freq", "对数回归（频数）", "x / y / 频数"),
+                    command("reg-e-exponential-freq", "e 指数回归（频数）", "x / y / 频数"),
+                    command("reg-ab-exponential-freq", "ab^x 回归（频数）", "x / y / 频数"),
+                    command("reg-power-freq", "幂回归（频数）", "x / y / 频数"),
+                    command("reg-inverse-freq", "逆数回归（频数）", "x / y / 频数"));
             case DISTRIBUTION -> com.codex.fx991.core.Compat.list(command("normal", "正态分布", "PDF / CDF / 逆分布"),
                     command("binomial", "二项分布", "概率 / 累计概率"),
                     command("poisson", "泊松分布", "概率 / 累计概率"));
@@ -2962,16 +3270,90 @@ public final class CnCwMachine {
                     command("cubic", "三次不等式", "四种关系"),
                     command("quartic", "四次不等式", "四种关系"));
             case COMPLEX -> com.codex.fx991.core.Compat.list(command("complex", "复数计算", "a+bi / r∠θ"));
-            case BASE_N -> com.codex.fx991.core.Compat.list(command("decimal", "十进制", "DEC"),
-                    command("hex", "十六进制", "HEX"), command("binary", "二进制", "BIN"),
-                    command("octal", "八进制", "OCT"));
-            case MATRIX -> com.codex.fx991.core.Compat.list(command("define", "定义矩阵", "MatA 至 MatD，最大 4×4"),
-                    command("calculate", "矩阵计算", "逆、行列式、转置"));
-            case VECTOR -> com.codex.fx991.core.Compat.list(command("define", "定义向量", "VctA 至 VctD，2D/3D"),
-                    command("calculate", "向量计算", "点积、叉积、夹角"));
+            case BASE_N -> com.codex.fx991.core.Compat.list(
+                    command("decimal", "十进制", "DEC"),
+                    command("hex", "十六进制", "HEX"),
+                    command("binary", "二进制", "BIN"),
+                    command("octal", "八进制", "OCT"),
+                    command("base-convert", "进制转换", "DEC / HEX / BIN / OCT"),
+                    command("base-add", "加法", "32 位有符号整数"),
+                    command("base-subtract", "减法", "32 位有符号整数"),
+                    command("base-multiply", "乘法", "32 位有符号整数"),
+                    command("base-divide", "除法", "整数商"),
+                    command("base-negate", "取负", "NEG"),
+                    command("base-not", "NOT", "按位取反"),
+                    command("base-and", "AND", "按位与"),
+                    command("base-or", "OR", "按位或"),
+                    command("base-xor", "XOR", "按位异或"),
+                    command("base-xnor", "XNOR", "按位同或"));
+            case MATRIX -> com.codex.fx991.core.Compat.list(
+                    command("define", "定义 MatA", "最大 4×4"),
+                    command("calculate", "直接矩阵", "一次性输入/结果"),
+                    command("mat-b", "定义 MatB", "最大 4×4"),
+                    command("mat-c", "定义 MatC", "最大 4×4"),
+                    command("mat-d", "定义 MatD", "最大 4×4"),
+                    command("matrix-det", "行列式", "det(Mat)"),
+                    command("matrix-inverse", "逆矩阵", "Mat⁻¹"),
+                    command("matrix-transpose", "转置", "Trn(Mat)"),
+                    command("matrix-add", "矩阵加法", "Mat+Mat"),
+                    command("matrix-subtract", "矩阵减法", "Mat−Mat"),
+                    command("matrix-multiply", "矩阵乘法", "Mat×Mat"),
+                    command("matrix-square", "矩阵平方", "Mat²"),
+                    command("matrix-cube", "矩阵立方", "Mat³"),
+                    command("matrix-identity", "单位矩阵", "Identity(n)"),
+                    command("matrix-abs", "元素绝对值", "Abs(Mat)"),
+                    command("matrix-ans", "MatAns", "矩阵答案存储器"));
+            case VECTOR -> com.codex.fx991.core.Compat.list(
+                    command("define", "定义 VctA", "2D/3D"),
+                    command("calculate", "直接向量", "一次性输入/结果"),
+                    command("vct-b", "定义 VctB", "2D/3D"),
+                    command("vct-c", "定义 VctC", "2D/3D"),
+                    command("vct-d", "定义 VctD", "2D/3D"),
+                    command("vector-magnitude", "向量模", "|Vct|"),
+                    command("vector-unit", "单位向量", "Unit(Vct)"),
+                    command("vector-add", "向量加法", "Vct+Vct"),
+                    command("vector-subtract", "向量减法", "Vct−Vct"),
+                    command("vector-dot", "点积", "Vct·Vct"),
+                    command("vector-cross", "叉积", "Vct×Vct"),
+                    command("vector-angle", "夹角", "Angle(Vct,Vct)"),
+                    command("vector-ans", "VctAns", "向量答案存储器"));
             case RATIO -> com.codex.fx991.core.Compat.list(command("a:b=x:d", "A:B=X:D", "求 X"),
                     command("a:b=c:x", "A:B=C:X", "求 X"));
         };
+    }
+
+    /**
+     * Stage 6 compatibility projection. The legacy fields remain the write-side
+     * source of truth in Step 1; this snapshot must therefore be lossless and
+     * side-effect free.
+     */
+    private CnCwCalculationState calculationStateSnapshot() {
+        if (!resultShown) return CnCwCalculationState.editing();
+        if (committedCalculationState != null
+                && committedCalculationState.display().equals(result)) {
+            if (errorShown && committedCalculationState.isError()) {
+                return committedCalculationState;
+            }
+            if (!errorShown && committedCalculationState.isResult()) {
+                return committedCalculationState;
+            }
+        }
+        if (errorShown) {
+            return CnCwCalculationState.error(result, lastError, errorCursor);
+        }
+        if (applicationResult != null) {
+            return CnCwCalculationState.applicationResult(result, applicationResult);
+        }
+        if (lastExactResult != null) {
+            return CnCwCalculationState.exactResult(result, ans, lastExactResult);
+        }
+        if (hasComplexAns && !originalResult.isEmpty()) {
+            return CnCwCalculationState.complexResult(result, complexAns);
+        }
+        if (hasAns && !originalResult.isEmpty()) {
+            return CnCwCalculationState.scalarResult(result, ans);
+        }
+        return CnCwCalculationState.textResult(result);
     }
 
     private void publish() {
@@ -2987,6 +3369,7 @@ public final class CnCwMachine {
                 semanticSelectionPath(selectionAnchor), semanticSelectionPath(selectionFocus),
                 result, resultShown ? applicationResult : null,
                 workflowSession == null ? null : workflowSession.snapshot(),
+                calculationStateSnapshot(),
                 ans, hasAns, status, settings, shiftArmed, poweredOn, overwriteMode,
                 verificationMode, engineeringMode,
                 !statementSequence.isEmpty() && statementSequenceIndex < statementSequence.size(),
@@ -4674,8 +5057,8 @@ public final class CnCwMachine {
             };
             return formatNumber(value.abs()) + "∠" + formatNumber(angle);
         }
-        if (Math.abs(value.imaginary()) < 1e-14) return formatNumber(value.real());
-        if (Math.abs(value.real()) < 1e-14) {
+        if (value.imaginary() == 0.0) return formatNumber(value.real());
+        if (value.real() == 0.0) {
             if (Math.abs(value.imaginary() - 1.0) < 1e-14) return "i";
             if (Math.abs(value.imaginary() + 1.0) < 1e-14) return "−i";
             return formatNumber(value.imaginary()) + "i";
@@ -4866,6 +5249,7 @@ public final class CnCwMachine {
             case CATALOG_CONVERSIONS -> "单位换算";
             case CATALOG_CONVERSION_ITEMS -> "单位换算";
             case CATALOG_PROBABILITY -> "概率";
+            case CATALOG_COMPLEX -> "复数";
             case CATALOG_RELATIONS -> "关系符号";
             case TOOLS -> "工具"; case TOOLS_CONVERSION -> "单位换算";
             case VARIABLES -> "变量"; case FUNCTIONS -> "f(x) / g(x)";
@@ -4931,7 +5315,8 @@ public final class CnCwMachine {
     private record Token(String display, String evaluation, boolean binary) { }
     private record Navigation(CnCwScreen screen, int selectedIndex) { }
     private record HistoryEntry(List<Token> tokens, String result, String processDisplay,
-                                CnCwModeEngine.ModeResult applicationResult) { }
+                                CnCwModeEngine.ModeResult applicationResult,
+                                CnCwCalculationState calculationState) { }
     private record CoordinateCall(boolean polar, String first, String second) { }
     private record FractionBounds(int templateIndex, int numeratorStart, int numeratorEnd,
                                   int denominatorStart, int denominatorEnd) { }

@@ -1,0 +1,39 @@
+x^2+1>0 [expected all reals] => InequalitySolution[intervals=[]]
+-x^2-1<0 [expected all reals] => InequalitySolution[intervals=[]]
+(x-1)^4 roots [expected 1 four times] => [0.998370190737722-0.0023503041386817827i, 0.9999974736868629-2.3141289071664694E-5i, 1.0000455651299645+5.28405921425555E-6i, 1.0015872470678937+0.0023685305617375486i]
+(x-1)^4<=0 [expected {1}] => InequalitySolution[intervals=[]]
+(x-1)^3 roots [expected 1 three times] => [0.9999974680631767+1.99094093734667E-6i, 0.9999978523151907-4.7184271604099214E-6i, 1.0000038871860368+1.962370489205542E-6i]
+(x-1)^3>0 [expected (1,+inf)] => InequalitySolution[intervals=[]]
+small leading coefficient [expected +/-1] => java.lang.IllegalArgumentException: Degree must be 1..4
+small nonzero quadratic roots [expected +/-1e-8] => [-1.0E-8, 1.0E-8]
+tiny quadratic roots [expected +/-1e-13] => [0.0, 0.0]
+stats [expected variance .25] => OneVariableResults[n=2.0, sumX=2.00000001E8, sumX2=2.00000002E16, mean=1.000000005E8, populationVariance=0.0, populationStdDev=0.0, sampleVariance=0.0, sampleStdDev=0.0, min=1.0E8, q1=1.0E8, median=1.000000005E8, q3=1.00000001E8, max=1.00000001E8]
+stats regression [expected slope 1, intercept -100000000] => java.lang.ArithmeticException: Regression is singular
+complex log(100) => 4.605170185988092
+complex ln(100) => 4.605170185988092
+complex 0^0.5 => NaN+NaNi
+complex 0^0 => 1.0
+complex sqrt(1+1e-10*i) => 1.0
+complex ln(0) => -Infinity
+complex exp(1000) => Infinity+NaNi
+complex 6/2(1+2) => 9.0
+complex tan(90) => 1.633123935319537E16
+scalar asinh(-100000000) => com.codex.fx991.core.math.CalculationException: Calculation range
+scalar asinh(-10000) => -9.903487541418464
+scalar 6/2(1+2) => 1.0
+scalar sin(180) => 1.2246467991473532E-16
+scalar 1/sin(180) => 8.165619676597685E15
+scalar diff(x^2,100000000) => 1.9999999999999803E8
+scalar diff(sin(x),100000000) => 0.001249611723366516
+derivative x^3 at 1e12 [expected 3e24] => 3.000000000585555E24
+machine COMPLEX log(100) => display=4.605170186, phase=RESULT, scalar=4.605170185988092
+machine COMPLEX 0^0.5 => display=NaN+NaNi, phase=RESULT, scalar=NaN
+machine COMPLEX ln(0) => display=-INFINITY, phase=RESULT, scalar=-Infinity
+machine COMPLEX exp(1000) => display=, phase=EDITING, scalar=null
+machine COMPLEX 0.000000000000001i => display=0, phase=RESULT, scalar=0.0
+machine COMPLEX 6/2(1+2) => display=9, phase=RESULT, scalar=9.0
+machine CALCULATE log(100) => display=2, phase=RESULT, scalar=2.0
+machine CALCULATE sqrt(-1)+log(100) => display=4.605170186+i, phase=RESULT, scalar=4.605170185988092
+mode inequality x^2+1>0 => �޽�
+mode polynomial (x-1)^4 => x1=0.99837019074?0.00235030414i
+x2=0.99999747369?0.00002314129i  x3=1.00004556513+0.00000528406i  x4=1.00158724707+0.00236853056i
