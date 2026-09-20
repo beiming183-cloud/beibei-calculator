@@ -21,6 +21,102 @@ public final class CnCwNumericalSafetySuite {
     }
 
     private void run() {
+        test("quadratic noisy fit agrees with independent exact coefficients", () -> {
+            for (double origin : new double[]{0, 1e8}) {
+                var fit = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                        new double[]{origin-2, origin-1, origin, origin+1, origin+2}, new double[]{4, 1, 1, 1, 4});
+                near(6.0/7, fit.a(), 1e-12);
+                near(17.0/35, fit.estimateY(origin), 1e-12);
+                near(137.0/35, fit.estimateY(origin+2), 1e-12);
+            }
+        });
+        test("quadratic independent x/y scales", () -> {
+            for (double sx : new double[]{1e-90, 1e-9, 1, 1e9, 1e90}) {
+                for (double sy : new double[]{1e-90, 1, 1e90}) {
+                    var fit = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                            new double[]{-sx, 0, sx}, new double[]{sy, 0, sy});
+                    near(0.25*sy, fit.estimateY(0.5*sx), sy*1e-12);
+                    double expected = (sy/sx)/sx;
+                    near(expected, fit.a(), Math.abs(expected)*1e-12);
+                }
+            }
+        });
+        test("quadratic zero-frequency outlier has no influence", () -> {
+            var fit = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{-1, 0, 1, 1e99}, new double[]{1, 0, 1, -1e99}, new double[]{1, 1, 1, 0});
+            near(1, fit.a(), 1e-12); near(0.25, fit.estimateY(0.5), 1e-12);
+        });
+        test("quadratic frequency rescaling and row permutation preserve predictions", () -> {
+            var first = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{-2, -1, 0, 1, 2}, new double[]{4, 1, 1, 1, 4}, new double[]{1, 2, 3, 4, 5});
+            var second = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{2, 1, 0, -1, -2}, new double[]{4, 1, 1, 1, 4},
+                    new double[]{5e90, 4e90, 3e90, 2e90, 1e90});
+            for (double x : new double[]{-2, -0.5, 0, 1.5, 2}) near(first.estimateY(x), second.estimateY(x), 1e-12);
+        });
+        test("quadratic constant response and inverse boundaries", () -> {
+            var fit = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{-1, 0, 1}, new double[]{7, 7, 7});
+            near(7, fit.estimateY(2), 0);
+            require(fit.estimateX(8).length == 0);
+            rejects(() -> fit.estimateX(7));
+            var line = new StatisticsEngine.RegressionResult(StatisticsEngine.RegressionType.QUADRATIC, 0, 2, 1, Double.NaN);
+            near(3, line.estimateX(7)[0], 0);
+        });
+        test("quadratic near-rank-deficient design refuses an unreliable fit", () -> rejects(() ->
+                StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                        new double[]{0, 1e-16, 1}, new double[]{0, 1, 2})));
+        test("quadratic fit cooperates with cancellation", () -> {
+            Thread.currentThread().interrupt();
+            try {
+                StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                        new double[]{-1, 0, 1}, new double[]{1, 0, 1});
+                throw new AssertionError("cancellation was ignored");
+            } catch (java.util.concurrent.CancellationException expected) {
+                // Must not become a successful fit or an ordinary math error.
+            } finally { Thread.interrupted(); }
+        });
+        test("quadratic fit with large x offset retains local predictions", () -> {
+            var fit = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{99999999, 100000000, 100000001}, new double[]{1, 0, 1});
+            near(1, fit.a(), 1e-10); near(-200000000, fit.b(), 1e-2);
+            near(0, fit.estimateY(100000000), 1e-10);
+            near(1, fit.estimateY(100000001), 1e-10);
+            double[] inverse = fit.estimateX(1);
+            java.util.Arrays.sort(inverse);
+            near(99999999, inverse[0], 1e-6); near(100000001, inverse[1], 1e-6);
+        });
+        test("quadratic fit on a small x scale", () -> {
+            var fit = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{-1e-9, 0, 1e-9}, new double[]{1, 0, 1});
+            near(1e18, fit.a(), 1e5); near(0.25, fit.estimateY(5e-10), 1e-12);
+        });
+        test("quadratic fit preserves small y values", () -> {
+            var fit = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{-1, 0, 1}, new double[]{1e-20, 0, 1e-20});
+            near(1e-20, fit.a(), 1e-32); near(2.5e-21, fit.estimateY(0.5), 1e-32);
+        });
+        test("quadratic fit requires three distinct active x values", () -> rejects(() ->
+                StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                        new double[]{0, 0, 1, 2}, new double[]{1, 1, 2, 5}, new double[]{1, 1, 1, 0})));
+        test("quadratic weighted fit agrees with expanded samples", () -> {
+            var weighted = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{1e8-1, 1e8, 1e8+1, 1e8+2}, new double[]{2, 0, 1, 5},
+                    new double[]{2, 1, 3, 1});
+            var expanded = StatisticsEngine.regression(StatisticsEngine.RegressionType.QUADRATIC,
+                    new double[]{1e8-1, 1e8-1, 1e8, 1e8+1, 1e8+1, 1e8+1, 1e8+2},
+                    new double[]{2, 2, 0, 1, 1, 1, 5});
+            for (double x : new double[]{1e8-1, 1e8, 1e8+0.5, 1e8+2})
+                near(expanded.estimateY(x), weighted.estimateY(x), 1e-10);
+        });
+        test("common polynomial coefficient scaling preserves separated roots", () -> {
+            for (double scale : new double[]{1e-90, 1e-30, 1, 1e30, 1e90}) {
+                var roots = PolynomialEngine.roots(scale, -6*scale, 11*scale, -6*scale);
+                for (int i = 0; i < 3; i++) {
+                    near(i+1, roots.get(i).real(), 1e-8); near(0, roots.get(i).imaginary(), 0);
+                }
+            }
+        });
         test("real cubic roots have no invented imaginary component", () -> {
             var roots = PolynomialEngine.roots(1, -6, 11, -6);
             for (int i = 0; i < roots.size(); i++) {

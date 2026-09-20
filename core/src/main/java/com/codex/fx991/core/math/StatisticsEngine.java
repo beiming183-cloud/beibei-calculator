@@ -171,23 +171,7 @@ public final class StatisticsEngine {
     }
 
     private static RegressionResult quadraticFit(double[] x, double[] y, double[] frequency) {
-        double n = sum(frequency), sx = 0, sx2 = 0, sx3 = 0, sx4 = 0, sy = 0, sxy = 0, sx2y = 0;
-        for (int i = 0; i < x.length; i++) {
-            double f = frequency[i], x2 = x[i] * x[i];
-            sx = com.codex.fx991.core.Compat.multiplyAdd(x[i], f, sx);
-            sx2 = com.codex.fx991.core.Compat.multiplyAdd(x2, f, sx2);
-            sx3 = com.codex.fx991.core.Compat.multiplyAdd(x2 * x[i], f, sx3);
-            sx4 = com.codex.fx991.core.Compat.multiplyAdd(x2 * x2, f, sx4);
-            sy = com.codex.fx991.core.Compat.multiplyAdd(y[i], f, sy);
-            sxy = com.codex.fx991.core.Compat.multiplyAdd(x[i] * y[i], f, sxy);
-            sx2y = com.codex.fx991.core.Compat.multiplyAdd(x2 * y[i], f, sx2y);
-        }
-        MatrixValue normal = new MatrixValue(new double[][] {
-                {sx4, sx3, sx2}, {sx3, sx2, sx}, {sx2, sx, n}
-        });
-        double[] coefficients = normal.solve(new double[] {sx2y, sxy, sy});
-        return new RegressionResult(RegressionType.QUADRATIC,
-                coefficients[0], coefficients[1], coefficients[2], Double.NaN);
+        return QuadraticRegression.fit(x, y, frequency);
     }
 
     private enum Transform { LOG_X, LOG_Y_E, LOG_Y_AB, LOG_X_LOG_Y, INVERSE_X }
@@ -314,12 +298,48 @@ public final class StatisticsEngine {
         public double maxY() { return maxY; }
     }
 
-    /** Coefficients use the manual's equation order: a, b, c. */
-    public record RegressionResult(RegressionType type, double a, double b, double c, double r) {
+    /**
+     * Coefficient accessors and the five-argument constructor retain their API.
+     * A fitted quadratic also retains immutable local coordinates for prediction;
+     * rebuilding it from rounded display coefficients would lose that accuracy.
+     */
+    public static final class RegressionResult {
+        private final RegressionType type;
+        private final double a, b, c, r;
+        private final QuadraticRegression quadraticModel;
+
+        public RegressionResult(RegressionType type, double a, double b, double c, double r) {
+            this(type, a, b, c, r, null);
+        }
+
+        RegressionResult(RegressionType type, double a, double b, double c, double r,
+                         QuadraticRegression quadraticModel) {
+            this.type = type; this.a = a; this.b = b; this.c = c; this.r = r;
+            this.quadraticModel = quadraticModel;
+        }
+
+        public RegressionType type() { return type; }
+        public double a() { return a; }
+        public double b() { return b; }
+        public double c() { return c; }
+        public double r() { return r; }
+
+        @Override public boolean equals(Object other) {
+            return other instanceof RegressionResult value && type == value.type
+                    && Double.compare(a, value.a) == 0 && Double.compare(b, value.b) == 0
+                    && Double.compare(c, value.c) == 0 && Double.compare(r, value.r) == 0;
+        }
+
+        @Override public int hashCode() { return java.util.Objects.hash(type, a, b, c, r); }
+
+        @Override public String toString() {
+            return "RegressionResult[type=" + type + ", a=" + a + ", b=" + b + ", c=" + c + ", r=" + r + "]";
+        }
+
         public double estimateY(double x) {
             return switch (type) {
                 case LINEAR -> a * x + b;
-                case QUADRATIC -> a * x * x + b * x + c;
+                case QUADRATIC -> quadraticModel == null ? (a * x + b) * x + c : quadraticModel.estimateY(x);
                 case LOGARITHMIC -> a + b * Math.log(x);
                 case E_EXPONENTIAL -> a * Math.exp(b * x);
                 case AB_EXPONENTIAL -> a * Math.pow(b, x);
@@ -332,10 +352,8 @@ public final class StatisticsEngine {
             return switch (type) {
                 case LINEAR -> new double[] {(y - b) / a};
                 case QUADRATIC -> {
-                    double discriminant = b * b - 4.0 * a * (c - y);
-                    if (discriminant < 0.0) yield new double[0];
-                    double root = Math.sqrt(discriminant);
-                    yield new double[] {(-b + root) / (2.0 * a), (-b - root) / (2.0 * a)};
+                    yield quadraticModel == null ? QuadraticRegression.realRoots(a, b, c - y)
+                            : quadraticModel.estimateX(y);
                 }
                 case LOGARITHMIC -> new double[] {Math.exp((y - a) / b)};
                 case E_EXPONENTIAL -> new double[] {Math.log(y / a) / b};

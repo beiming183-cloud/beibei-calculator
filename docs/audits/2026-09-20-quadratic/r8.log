@@ -1,0 +1,40 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources NO-SOURCE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preCn991ReleaseBuild UP-TO-DATE
+> Task :app:checkCn991ReleaseDuplicateClasses
+> Task :app:generateCn991ReleaseBuildConfig
+> Task :app:javaPreCompileCn991Release
+> Task :app:checkCn991ReleaseAarMetadata
+> Task :app:generateCn991ReleaseResValues
+> Task :app:mapCn991ReleaseSourceSetPaths
+> Task :app:generateCn991ReleaseResources
+> Task :app:packageCn991ReleaseResources
+> Task :app:createCn991ReleaseCompatibleScreenManifests
+> Task :app:mergeCn991ReleaseResources
+> Task :app:extractDeepLinksCn991Release
+> Task :app:parseCn991ReleaseLocalResources
+> Task :app:processCn991ReleaseMainManifest
+> Task :app:processCn991ReleaseManifest
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :app:mergeCn991ReleaseArtProfile
+> Task :app:processCn991ReleaseJavaRes NO-SOURCE
+> Task :app:processCn991ReleaseManifestForPackage
+> Task :app:mergeCn991ReleaseJavaResource
+> Task :app:processCn991ReleaseResources
+
+> Task :app:compileCn991ReleaseJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :app:expandCn991ReleaseArtProfileWildcards
+> Task :app:mergeCn991ReleaseGeneratedProguardFiles
+> Task :app:minifyCn991ReleaseWithR8
+
+BUILD SUCCESSFUL in 24s
+24 actionable tasks: 21 executed, 3 up-to-date

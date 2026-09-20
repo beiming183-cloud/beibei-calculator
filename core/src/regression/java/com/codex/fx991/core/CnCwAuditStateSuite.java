@@ -25,6 +25,7 @@ public final class CnCwAuditStateSuite {
         test("history FORMAT", this::historyFormat);
         test("complex verification", this::complexVerification);
         test("public scalar/complex precedence", this::expressionPrecedence);
+        test("quadratic workflow retains large-offset coefficients", this::quadraticWorkflow);
         test("verification availability", this::verificationAvailability);
         test("small imaginary display", this::smallImaginary);
         test("small application result display", this::smallApplicationResult);
@@ -211,6 +212,28 @@ public final class CnCwAuditStateSuite {
         CnCwMachine matrix = app(7); choose(matrix, "define");
         matrix.pasteExpression("10"); key(matrix, CnCwKey.EXE);
         equal("10", matrix.state().applicationResult().cells().get(0), "ordinary grid numbers remain plain");
+    }
+
+    private void quadraticWorkflow() {
+        for (String command : new String[]{"reg-quadratic", "reg-quadratic-freq"}) {
+            CnCwMachine m = app(1); choose(m, command);
+            int columns = m.state().workflowInput().columns();
+            for (int row = 0; row < 3; row++) {
+                m.selectWorkflowCell(row, 0);
+                m.pasteExpression(Integer.toString(99999999 + row)); key(m, CnCwKey.OK);
+                m.pasteExpression(row == 1 ? "0" : "1");
+                if (columns == 3) {
+                    key(m, CnCwKey.OK); m.pasteExpression("1");
+                }
+                if (row < 2) key(m, CnCwKey.OK);
+            }
+            key(m, CnCwKey.EXE);
+            check(m.state().calculationState().isResult(), "quadratic workflow result " + command);
+            var items = m.state().applicationResult().items();
+            near(1, number(items.get(0).value()), "quadratic workflow a");
+            near(-200000000, number(items.get(1).value()), "quadratic workflow b");
+            near(1e16, number(items.get(2).value()), "quadratic workflow c");
+        }
     }
 
     private void expressionPrecedence() {

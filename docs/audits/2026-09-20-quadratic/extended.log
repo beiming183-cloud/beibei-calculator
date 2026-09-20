@@ -1,0 +1,35 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava
+> Task :core:processResources NO-SOURCE
+> Task :core:classes
+> Task :core:compileRegressionJava
+> Task :core:processRegressionResources NO-SOURCE
+> Task :core:regressionClasses
+
+> Task :core:cwNumericalSafetyTest
+PASS 110 numerical safety checks
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+
+> Task :core:cwAuditStateTest FAILED
+FAIL quadratic workflow retains large-offset coefficients: quadratic workflow result reg-quadratic
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+Exception in thread "main" java.lang.AssertionError: quadratic workflow retains large-offset coefficients: quadratic workflow result reg-quadratic
+	at com.codex.fx991.core.CnCwAuditStateSuite.run(CnCwAuditStateSuite.java:34)
+	at com.codex.fx991.core.CnCwAuditStateSuite.main(CnCwAuditStateSuite.java:18)
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':core:cwAuditStateTest'.
+> Process 'command 'C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot\bin\java.exe'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 8s
+4 actionable tasks: 4 executed

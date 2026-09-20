@@ -1,0 +1,31 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources NO-SOURCE
+> Task :core:classes UP-TO-DATE
+> Task :core:compileRegressionJava
+> Task :core:processRegressionResources NO-SOURCE
+> Task :core:regressionClasses
+
+> Task :core:cwNumericalSafetyTest FAILED
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+FAIL quadratic fit with large x offset retains local predictions: java.lang.AssertionError: expected=1.0 actual=-2.0586236317952474E-17
+FAIL quadratic weighted fit agrees with expanded samples: java.lang.AssertionError: expected=1.3696946017444134 actual=1.2049023024737835
+Exception in thread "main" java.lang.AssertionError: 2 numerical safety failures
+	at com.codex.fx991.core.CnCwNumericalSafetySuite.main(CnCwNumericalSafetySuite.java:19)
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':core:cwNumericalSafetyTest'.
+> Process 'command 'C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot\bin\java.exe'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 6s
+3 actionable tasks: 2 executed, 1 up-to-date
