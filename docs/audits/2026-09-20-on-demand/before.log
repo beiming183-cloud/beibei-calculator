@@ -1,0 +1,30 @@
+ע: ĳЩ�����ļ�ʹ�û򸲸����ѹ�ʱ�� API��
+ע: �й���ϸ��Ϣ, ��ʹ�� -Xlint:deprecation ���±��롣
+PASS OK is evaluated off the main thread
+PASS ENTER is evaluated off the main thread
+FAIL repeated execute shares the in-flight calculation: java.lang.AssertionError: duplicate EXE restarted identical calculation
+FAIL completed worker awaiting display is not restarted: java.lang.AssertionError: ready result was discarded and recalculated
+PASS switching application cancels old calculation
+PASS error OK dismisses inline before fast editing
+PASS error text is not scientific notation
+PASS structured result does not draw serialized input or cursor
+PASS structured result touch does not edit hidden input
+PASS home card tap opens selected application
+PASS result copy and return preserve workflow cells
+PASS home swipe cancel gap and focus loss do not activate
+PASS all visible home slots use current viewport
+PASS function table navigation survives read-only result screen
+PASS paste invalidates a queued result
+PASS paste rejects an already posted old result
+PASS touch cursor invalidates a queued result
+PASS touch selection invalidates a queued result
+PASS workflow cell selection invalidates a queued result
+PASS workflow OK advances synchronously before next input
+PASS crossed display/key release stops repeat
+PASS ordinary held key repeats only until release
+PASS focus loss stops repeat
+PASS focus loss cancels a queued calculation
+PASS detach stops repeat
+PASS reattached view can evaluate again
+Exception in thread "main" java.lang.AssertionError: 2 View regressions failed
+	at com.codex.fx991smooth.CalculatorViewHostSuite.main(CalculatorViewHostSuite.java:49)

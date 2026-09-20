@@ -22,6 +22,9 @@ public final class CalculatorViewHostSuite {
     public static void main(String[] args) throws Exception {
         run("OK is evaluated off the main thread", () -> executionIsAsync(CnCwKey.OK));
         run("ENTER is evaluated off the main thread", () -> executionIsAsync(CnCwKey.ENTER));
+        run("repeated execute shares the in-flight calculation", CalculatorViewHostSuite::repeatedExecute);
+        run("completed worker awaiting display is not restarted", CalculatorViewHostSuite::postedExecute);
+        run("switching application cancels old calculation", CalculatorViewHostSuite::switchCancelsCalculation);
         run("error OK dismisses inline before fast editing", CalculatorViewHostSuite::errorOkStaysInline);
         run("error text is not scientific notation", CalculatorViewHostSuite::errorIsNotScientific);
         run("structured result does not draw serialized input or cursor", CalculatorViewHostSuite::structuredResultDrawing);
@@ -260,6 +263,47 @@ public final class CalculatorViewHostSuite {
             view.onDetachedFromWindow();
             Handler.reset();
         }
+    }
+
+    private static void repeatedExecute() throws Exception {
+        CalculatorView view = view();
+        CountDownLatch release = block(view);
+        try {
+            paste(view, "1+1"); key(view, CnCwKey.EXE);
+            Object original = field(view, "pendingEvaluation");
+            for (int i = 0; i < 50; i++) key(view, CnCwKey.EXE);
+            check(field(view, "pendingEvaluation") == original, "duplicate EXE restarted identical calculation");
+            paste(view, "+1"); key(view, CnCwKey.EXE);
+            check(field(view, "pendingEvaluation") != original, "edited expression must start new calculation");
+            release.countDown(); settle(view);
+            check("3".equals(state(view).result()), "latest calculation lost");
+        } finally { release.countDown(); view.onDetachedFromWindow(); Handler.reset(); }
+    }
+
+    private static void postedExecute() throws Exception {
+        CalculatorView view = view();
+        try {
+            paste(view, "2+2"); key(view, CnCwKey.EXE);
+            executor(view).submit(() -> {}).get(2, TimeUnit.SECONDS);
+            Object original = field(view, "pendingEvaluation");
+            key(view, CnCwKey.EXE);
+            check(field(view, "pendingEvaluation") == original, "ready result was discarded and recalculated");
+            settle(view); check("4".equals(state(view).result()), "ready result missing");
+        } finally { view.onDetachedFromWindow(); Handler.reset(); }
+    }
+
+    private static void switchCancelsCalculation() throws Exception {
+        CalculatorView view = view();
+        CountDownLatch release = block(view);
+        try {
+            paste(view, "1+1"); key(view, CnCwKey.EXE);
+            java.util.concurrent.Future<?> original = (java.util.concurrent.Future<?>) field(view, "pendingEvaluation");
+            key(view, CnCwKey.HOME); key(view, CnCwKey.RIGHT); key(view, CnCwKey.OK);
+            check(original.isCancelled() && field(view, "pendingEvaluation") == null, "old mode calculation survived");
+            release.countDown(); settle(view);
+            check(state(view).application() == com.codex.fx991.core.mode.ApplicationMode.STATISTICS
+                    && state(view).applicationLanding(), "old result replaced statistics landing");
+        } finally { release.countDown(); view.onDetachedFromWindow(); Handler.reset(); }
     }
 
     private static void pasteInvalidates() throws Exception {

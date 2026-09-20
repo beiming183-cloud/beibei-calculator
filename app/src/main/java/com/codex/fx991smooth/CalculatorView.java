@@ -115,6 +115,7 @@ public final class CalculatorView extends View {
     private CnCwMachine machine;
     private CnCwUiState state;
     private Future<?> pendingEvaluation;
+    private CnCwKey pendingEvaluationKey;
     private long inputRevision;
     private boolean evaluating;
     /** View-local viewport for core-owned TABLE results; never changes math state. */
@@ -2264,10 +2265,14 @@ public final class CalculatorView extends View {
 
     private void dispatchKey(CnCwKey key) {
         if (handleTableResultNavigation(key)) return;
+        // Input mutations invalidate this request through the shared revision gate.
+        // Keep identical in-flight work, including a result awaiting its UI callback.
+        if (evaluating && pendingEvaluation != null && key == pendingEvaluationKey) return;
         long revision = invalidateEvaluation();
         if (machine.requiresEvaluation(key)) {
             CnCwMachine snapshot = machine.copyForEvaluation();
             evaluating = true;
+            pendingEvaluationKey = key;
             postInvalidateOnAnimation();
             pendingEvaluation = evaluationExecutor.submit(() -> {
                 CnCwUiState next;
@@ -2277,6 +2282,7 @@ public final class CalculatorView extends View {
                     post(() -> {
                         if (revision != inputRevision) return;
                         pendingEvaluation = null;
+                        pendingEvaluationKey = null;
                         evaluating = false;
                         postInvalidateOnAnimation();
                     });
@@ -2287,6 +2293,7 @@ public final class CalculatorView extends View {
                     machine = snapshot;
                     state = next;
                     pendingEvaluation = null;
+                    pendingEvaluationKey = null;
                     evaluating = false;
                     postInvalidateOnAnimation();
                 });
@@ -2333,6 +2340,7 @@ public final class CalculatorView extends View {
             pendingEvaluation = null;
         }
         evaluating = false;
+        pendingEvaluationKey = null;
     }
 
     /** All View-to-machine edits share the same stale-result gate. */

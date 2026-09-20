@@ -1,0 +1,31 @@
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+Picked up JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.language=en -Duser.country=US
+PASS OK is evaluated off the main thread
+PASS ENTER is evaluated off the main thread
+PASS repeated execute shares the in-flight calculation
+PASS completed worker awaiting display is not restarted
+PASS switching application cancels old calculation
+PASS error OK dismisses inline before fast editing
+PASS error text is not scientific notation
+PASS structured result does not draw serialized input or cursor
+PASS structured result touch does not edit hidden input
+PASS home card tap opens selected application
+PASS result copy and return preserve workflow cells
+PASS home swipe cancel gap and focus loss do not activate
+PASS all visible home slots use current viewport
+PASS function table navigation survives read-only result screen
+PASS paste invalidates a queued result
+PASS paste rejects an already posted old result
+PASS touch cursor invalidates a queued result
+PASS touch selection invalidates a queued result
+PASS workflow cell selection invalidates a queued result
+PASS workflow OK advances synchronously before next input
+PASS crossed display/key release stops repeat
+PASS ordinary held key repeats only until release
+PASS focus loss stops repeat
+PASS focus loss cancels a queued calculation
+PASS detach stops repeat
+PASS reattached view can evaluate again
