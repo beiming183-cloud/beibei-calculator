@@ -203,6 +203,8 @@ public final class CalculatorViewHostSuite {
                 check(Math.abs(first.left-below.left)<.01f,"rows misaligned");
                 android.graphics.Canvas canvas=new android.graphics.Canvas();draw.invoke(view,canvas,lcd);
                 check(canvas.texts.contains("应用")&&canvas.texts.contains((page+1)+" / 2"),"page header missing");
+                check(!canvas.texts.contains("x =")&&!canvas.texts.contains("x <"),"old bold placeholder icons remain");
+                if(page==0)check(canvas.texts.contains("x = y")&&canvas.texts.contains("x < y"),"requested equation icons missing");
                 for(var item:state(view).homeVisibleItems())check(canvas.texts.contains(item.label()),"missing label "+item.label());
                 int selected=state(view).selectedIndex();
                 key(view,CnCwKey.DOWN);

@@ -376,6 +376,13 @@ public final class CalculatorView extends View {
             paint.setStyle(Paint.Style.FILL);
             for(int row=-1;row<=1;row+=2) for(int col=-1;col<=1;col+=2)
                 canvas.drawCircle(cx+col*radius*.45f,cy+row*radius*.5f,dp(1.5f),paint);
+        } else if ("EQUATION".equals(id) || "INEQUALITY".equals(id)) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTypeface(FACE_NORMAL);
+            paint.setTextSize(sp(18f));
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText("EQUATION".equals(id) ? "x = y" : "x < y", cx,
+                    centeredBaseline(cy - radius, cy + radius), paint);
         } else if ("VECTOR".equals(id) || "COMPLEX".equals(id)) {
             canvas.drawLine(cx-radius,cy+radius,cx+radius*1.2f,cy+radius,paint);
             canvas.drawLine(cx-radius,cy+radius,cx-radius,cy-radius*1.2f,paint);
@@ -394,8 +401,6 @@ public final class CalculatorView extends View {
             paint.setTextAlign(Paint.Align.CENTER);
             String symbol = switch(id) {
                 case "BASE_N" -> "01";
-                case "EQUATION" -> "x =";
-                case "INEQUALITY" -> "x <";
                 case "RATIO" -> "a:b";
                 default -> "ƒ";
             };
