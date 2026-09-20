@@ -104,14 +104,21 @@ public final class ComplexExpressionEngine {
         }
 
         ComplexValue parseTerm() {
-            ComplexValue value = parseUnary();
+            ComplexValue value = parseImplicitProduct();
             while (true) {
                 skip();
-                if (take('*') || take('×')) value = value.multiply(parseUnary());
-                else if (take('/') || take('÷')) value = value.divide(parseUnary());
-                else if (startsPrimary()) value = value.multiply(parseUnary());
+                if (take('*') || take('×')) value = value.multiply(parseImplicitProduct());
+                else if (take('/') || take('÷')) value = value.divide(parseImplicitProduct());
                 else break;
             }
+            return value;
+        }
+
+        // Same precedence as ScalarExpressionEngine: adjacent factors bind
+        // before explicit multiplication/division. E.g. 1/2i = 1/(2*i).
+        ComplexValue parseImplicitProduct() {
+            ComplexValue value = parseUnary();
+            while (startsPrimary()) value = value.multiply(parseUnary());
             return value;
         }
 

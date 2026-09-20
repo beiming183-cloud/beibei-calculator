@@ -24,6 +24,7 @@ public final class CnCwAuditStateSuite {
         test("repeated HOME", this::repeatedHome);
         test("history FORMAT", this::historyFormat);
         test("complex verification", this::complexVerification);
+        test("public scalar/complex precedence", this::expressionPrecedence);
         test("verification availability", this::verificationAvailability);
         test("small imaginary display", this::smallImaginary);
         test("small application result display", this::smallApplicationResult);
@@ -210,6 +211,24 @@ public final class CnCwAuditStateSuite {
         CnCwMachine matrix = app(7); choose(matrix, "define");
         matrix.pasteExpression("10"); key(matrix, CnCwKey.EXE);
         equal("10", matrix.state().applicationResult().cells().get(0), "ordinary grid numbers remain plain");
+    }
+
+    private void expressionPrecedence() {
+        for (int mode : new int[]{0, 5}) {
+            CnCwMachine m = app(mode);
+            m.pasteExpression("6/2(1+2)"); key(m, CnCwKey.EXE);
+            equal("1", m.state().result(), "pasted implicit product in mode " + mode);
+            key(m, CnCwKey.AC);
+            key(m, CnCwKey.DIGIT_6, CnCwKey.DIVIDE, CnCwKey.DIGIT_2,
+                    CnCwKey.OPEN_PAREN, CnCwKey.DIGIT_1, CnCwKey.ADD,
+                    CnCwKey.DIGIT_2, CnCwKey.CLOSE_PAREN, CnCwKey.EXE);
+            equal("1", m.state().result(), "keyed implicit product in mode " + mode);
+            key(m, CnCwKey.AC); m.pasteExpression("6/2*(1+2)"); key(m, CnCwKey.EXE);
+            equal("9", m.state().result(), "explicit product stays left associative " + mode);
+            key(m, CnCwKey.AC); verify(m);
+            m.pasteExpression("6/2(1+2)=1"); key(m, CnCwKey.EXE);
+            equal("True", m.state().result(), "verification uses same precedence " + mode);
+        }
     }
 
     private static CnCwMachine app(int index) {

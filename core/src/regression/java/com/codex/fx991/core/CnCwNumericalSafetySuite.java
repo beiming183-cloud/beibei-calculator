@@ -193,8 +193,62 @@ public final class CnCwNumericalSafetySuite {
                     new double[]{0, 1e-10}, new double[]{0, 1e-10});
             near(1, result.a(), 1e-15);
         });
-        test("complex implicit multiplication unchanged", () -> near(9, complex("6/2(1+2)").real(), 0));
+        test("complex implicit multiplication follows scalar precedence", () -> near(1, complex("6/2(1+2)").real(), 0));
         test("scalar implicit multiplication unchanged", () -> near(1, ScalarExpressionEngine.evaluate("6/2(1+2)", null), 0));
+        String[] commonExpressions = {
+                "6/2(1+2)", "8/2(2)", "6/2(3)+1", "6/-2(3)",
+                "6/2*(1+2)", "(6/2)(1+2)", "6/(2(1+2))", "6/(-2)(1+2)",
+                "12/2pi", "12/2sin(30)", "8/2(2)^2", "8/2(2)/2",
+                "2^3^2", "-2^2", "2^-2", "6÷2(1+2)", "6÷2×(1+2)"
+        };
+        for (String expression : commonExpressions) {
+            test("scalar/complex grammar parity: " + expression, () -> {
+                double expected = ScalarExpressionEngine.evaluate(expression, null);
+                ComplexValue actual = complex(expression);
+                near(expected, actual.real(), 1e-12 * Math.max(1, Math.abs(expected)));
+                near(0, actual.imaginary(), 0);
+            });
+        }
+        String[] complexExpressions = {"1/2i", "i/2i", "1/2i^2", "8/2(1+i)", "8/2*(1+i)"};
+        double[][] complexExpected = {{0, -0.5}, {0.5, 0}, {-0.5, 0}, {2, -2}, {4, 4}};
+        for (int index = 0; index < complexExpressions.length; index++) {
+            final int sample = index;
+            test("complex implicit denominator: " + complexExpressions[sample], () -> {
+                ComplexValue actual = complex(complexExpressions[sample]);
+                near(complexExpected[sample][0], actual.real(), 1e-12);
+                near(complexExpected[sample][1], actual.imaginary(), 1e-12);
+            });
+        }
+        test("bounded generated explicit/implicit product parity", () -> {
+            for (int a = -3; a <= 3; a++) {
+                if (a == 0) continue;
+                for (int b = 1; b <= 4; b++) {
+                    for (int c = -2; c <= 2; c++) {
+                        if (c == 0) continue;
+                        for (String join : new String[]{"", "*"}) {
+                            String expression = a + "/(" + b + ")" + join + "(" + c + ")";
+                            double expected = join.isEmpty() ? (double) a / (b * c) : (double) a / b * c;
+                            near(expected, ScalarExpressionEngine.evaluate(expression, null), 1e-12);
+                            near(expected, complex(expression).real(), 1e-12);
+                            near(0, complex(expression).imaginary(), 0);
+                        }
+                    }
+                }
+            }
+        });
+        test("implicit denominator includes complex variables and Ans", () -> {
+            var variables = Map.of("A", new ComplexValue(3, 0));
+            for (String expression : new String[]{"12/2A", "12/2Ans"}) {
+                var actual = ComplexExpressionEngine.evaluate(expression, variables,
+                        new ComplexValue(3, 0), AngleUnit.DEG);
+                near(2, actual.real(), 0); near(0, actual.imaginary(), 0);
+            }
+        });
+        test("parenthesized polar value is an implicit denominator factor", () -> {
+            var actual = complex("1/2(1∠90)");
+            near(0, actual.real(), 0); near(-0.5, actual.imaginary(), 0);
+        });
+        test("implicit zero denominator is an error, not zero", () -> rejects(() -> complex("1/2(0)")));
         test("asinh negative large argument", () -> near(-(Math.log(1e8) + Math.log(2)),
                 ScalarExpressionEngine.evaluate("asinh(-100000000)", null), 1e-13));
         test("asinh large in-range argument", () -> near(Math.log(1e99) + Math.log(2),

@@ -1,0 +1,41 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources NO-SOURCE
+> Task :core:classes UP-TO-DATE
+> Task :core:compileRegressionJava
+> Task :core:processRegressionResources NO-SOURCE
+> Task :core:regressionClasses
+
+> Task :core:cwNumericalSafetyTest FAILED
+FAIL complex implicit multiplication follows scalar precedence: java.lang.AssertionError: expected=1.0 actual=9.0
+FAIL scalar/complex grammar parity: 6/2(1+2): java.lang.AssertionError: expected=1.0 actual=9.0
+FAIL scalar/complex grammar parity: 8/2(2): java.lang.AssertionError: expected=2.0 actual=8.0
+FAIL scalar/complex grammar parity: 6/2(3)+1: java.lang.AssertionError: expected=2.0 actual=10.0
+FAIL scalar/complex grammar parity: 6/-2(3): java.lang.AssertionError: expected=-1.0 actual=-9.0
+FAIL scalar/complex grammar parity: 6/(-2)(1+2): java.lang.AssertionError: expected=-1.0 actual=-9.0
+FAIL scalar/complex grammar parity: 12/2pi: java.lang.AssertionError: expected=1.909859317102744 actual=18.84955592153876
+FAIL scalar/complex grammar parity: 12/2sin(30): java.lang.AssertionError: expected=12.000000000000002 actual=2.9999999999999996
+FAIL scalar/complex grammar parity: 8/2(2)^2: java.lang.AssertionError: expected=1.0 actual=16.0
+FAIL scalar/complex grammar parity: 8/2(2)/2: java.lang.AssertionError: expected=1.0 actual=4.0
+FAIL scalar/complex grammar parity: 6��2(1+2): java.lang.AssertionError: expected=1.0 actual=9.0
+FAIL complex implicit denominator: 1/2i: java.lang.AssertionError: expected=-0.5 actual=0.5
+FAIL complex implicit denominator: i/2i: java.lang.AssertionError: expected=0.5 actual=-0.5
+FAIL complex implicit denominator: 8/2(1+i): java.lang.AssertionError: expected=2.0 actual=4.0
+Exception in thread "main" java.lang.AssertionError: 14 numerical safety failures
+	at com.codex.fx991.core.CnCwNumericalSafetySuite.main(CnCwNumericalSafetySuite.java:19)
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':core:cwNumericalSafetyTest'.
+> Process 'command 'C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot\bin\java.exe'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 7s
+3 actionable tasks: 2 executed, 1 up-to-date
