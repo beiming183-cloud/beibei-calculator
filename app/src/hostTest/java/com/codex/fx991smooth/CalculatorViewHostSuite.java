@@ -24,6 +24,13 @@ public final class CalculatorViewHostSuite {
         run("ENTER is evaluated off the main thread", () -> executionIsAsync(CnCwKey.ENTER));
         run("error OK dismisses inline before fast editing", CalculatorViewHostSuite::errorOkStaysInline);
         run("error text is not scientific notation", CalculatorViewHostSuite::errorIsNotScientific);
+        run("structured result does not draw serialized input or cursor", CalculatorViewHostSuite::structuredResultDrawing);
+        run("structured result touch does not edit hidden input", CalculatorViewHostSuite::structuredResultTouch);
+        run("home card tap opens selected application", CalculatorViewHostSuite::homeCardTap);
+        run("result copy and return preserve workflow cells", CalculatorViewHostSuite::resultCopyAndReturn);
+        run("home swipe cancel gap and focus loss do not activate", CalculatorViewHostSuite::homeCanceledTaps);
+        run("all visible home slots use current viewport", CalculatorViewHostSuite::homeViewportTaps);
+        run("function table navigation survives read-only result screen", CalculatorViewHostSuite::tableResultNavigation);
         run("paste invalidates a queued result", CalculatorViewHostSuite::pasteInvalidates);
         run("paste rejects an already posted old result", CalculatorViewHostSuite::postedResultInvalidates);
         run("touch cursor invalidates a queued result", CalculatorViewHostSuite::cursorInvalidates);
@@ -41,9 +48,136 @@ public final class CalculatorViewHostSuite {
 
     private static CalculatorView view() {
         Handler.reset();
+        android.app.AlertDialog.items = null;
         CalculatorView view = new CalculatorView(new Context());
         view.layout(0, 0, 420, 933);
         return view;
+    }
+
+    private static void ratioResult(CalculatorView view) throws Exception {
+        key(view, CnCwKey.HOME);
+        for(int i=0;i<9;i++)key(view,CnCwKey.RIGHT);
+        key(view,CnCwKey.OK); key(view,CnCwKey.OK);
+        paste(view,"101"); key(view,CnCwKey.RIGHT);
+        paste(view,"202"); key(view,CnCwKey.RIGHT);
+        paste(view,"303"); key(view,CnCwKey.EXE); settle(view);
+        check(state(view).hasStructuredApplicationResult(),"ratio result missing");
+    }
+
+    private static void structuredResultDrawing() throws Exception {
+        CalculatorView view=view();
+        try {
+            ratioResult(view);
+            android.graphics.Canvas canvas=new android.graphics.Canvas();
+            Method draw=CalculatorView.class.getDeclaredMethod("drawApplicationScreen",android.graphics.Canvas.class,RectF.class);
+            draw.setAccessible(true);
+            draw.invoke(view,canvas,new PhysicalKeyLayout(1).displayBounds(420,933));
+            check(!String.join("",canvas.texts).contains("101"),"serialized input is drawn: "+canvas.texts);
+            check(canvas.lines==0,"editor cursor line leaked into key/value result");
+            check(canvas.texts.stream().anyMatch(text -> text.contains("151.5")),"result value was hidden");
+        } finally {view.onDetachedFromWindow();Handler.reset();}
+    }
+
+    private static void structuredResultTouch() throws Exception {
+        CalculatorView view=view();
+        try {
+            ratioResult(view);
+            String original=state(view).expression();
+            touch(view,MotionEvent.ACTION_DOWN,80,70);
+            touch(view,MotionEvent.ACTION_UP,80,70);
+            check(state(view).resultShown(),"tap exited result and edited invisible input");
+            touch(view,MotionEvent.ACTION_DOWN,80,70); Handler.advanceBy(360);
+            check(!state(view).hasSelection(),"long press selected hidden source");
+            check(android.app.AlertDialog.items != null
+                    && java.util.Arrays.asList(android.app.AlertDialog.items).contains("复制计算结果"),"result copy menu missing");
+            check(original.equals(state(view).expression()),"result gesture changed original inputs");
+        } finally {view.onDetachedFromWindow();Handler.reset();}
+    }
+
+    private static void touch(CalculatorView view,int action,float x,float y) {
+        view.onTouchEvent(event(action,0,new int[]{0},new float[]{x},new float[]{y}));
+    }
+
+    private static void homeCardTap() throws Exception {
+        CalculatorView view=view();
+        try {
+            key(view,CnCwKey.HOME);
+            touch(view,MotionEvent.ACTION_DOWN,210,85);
+            touch(view,MotionEvent.ACTION_UP,210,85);
+            check(state(view).application()==com.codex.fx991.core.mode.ApplicationMode.STATISTICS
+                    && state(view).applicationLanding(),"statistics card tap did not open statistics");
+        } finally {view.onDetachedFromWindow();Handler.reset();}
+    }
+
+    private static void resultCopyAndReturn() throws Exception {
+        CalculatorView view=view();
+        try {
+            ratioResult(view);
+            touch(view,MotionEvent.ACTION_DOWN,80,70);Handler.advanceBy(360);
+            var actions=java.util.Arrays.asList(android.app.AlertDialog.items);
+            check(!actions.contains("复制计算过程"),"serialized workflow process is exposed");
+            android.app.AlertDialog.listener.onClick(null,actions.indexOf("复制计算结果"));
+            ClipboardManager clipboard=(ClipboardManager)view.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            String copied=clipboard.getPrimaryClip().getItemAt(0).coerceToText(view.getContext()).toString();
+            check(copied.contains("151.5")&&!copied.contains("101")&&!copied.contains("│"),"wrong result clipboard: "+copied);
+            touch(view,MotionEvent.ACTION_UP,80,70);
+            key(view,CnCwKey.BACK);
+            check(!state(view).resultShown()&&state(view).hasWorkflowInput(),"BACK did not restore form");
+            check(state(view).workflowInput().cells().containsAll(java.util.List.of("101","202","303")),"form cells lost");
+        } finally {view.onDetachedFromWindow();Handler.reset();}
+    }
+
+    private static void tableResultNavigation() throws Exception {
+        CalculatorView view=view();
+        try {
+            key(view,CnCwKey.HOME);key(view,CnCwKey.RIGHT);key(view,CnCwKey.RIGHT);
+            key(view,CnCwKey.OK);key(view,CnCwKey.DOWN);key(view,CnCwKey.OK);
+            paste(view,"x");key(view,CnCwKey.OK);
+            paste(view,"0");key(view,CnCwKey.OK);
+            paste(view,"20");key(view,CnCwKey.OK);paste(view,"1");
+            key(view,CnCwKey.EXE);settle(view);
+            check(state(view).hasStructuredApplicationResult(),"table result missing");
+            key(view,CnCwKey.DOWN);check((int)field(view,"tableFirstRow")==1,"table down");
+            key(view,CnCwKey.PAGE_DOWN);check((int)field(view,"tableFirstRow")==5,"table page down");
+            key(view,CnCwKey.PAGE_UP);check((int)field(view,"tableFirstRow")==1,"table page up");
+            touch(view,MotionEvent.ACTION_DOWN,80,70);touch(view,MotionEvent.ACTION_UP,80,70);
+            check(state(view).resultShown(),"table tap activated hidden editor");
+        } finally {view.onDetachedFromWindow();Handler.reset();}
+    }
+
+    private static void homeCanceledTaps() throws Exception {
+        CalculatorView view=view();
+        try {
+            for(int kind=0;kind<4;kind++) {
+                key(view,CnCwKey.HOME);
+                touch(view,MotionEvent.ACTION_DOWN,210,85);
+                check(state(view).screen()==com.codex.fx991.core.cw.CnCwScreen.HOME,"card opened before release");
+                if(kind==0) {touch(view,MotionEvent.ACTION_MOVE,240,85);touch(view,MotionEvent.ACTION_MOVE,210,85);}
+                if(kind==1)touch(view,MotionEvent.ACTION_CANCEL,210,85);
+                if(kind==2)view.onWindowFocusChanged(false);
+                touch(view,MotionEvent.ACTION_UP,kind==3?10:210,85);
+                check(state(view).screen()==com.codex.fx991.core.cw.CnCwScreen.HOME,"canceled card activated: "+kind);
+            }
+        } finally {view.onDetachedFromWindow();Handler.reset();}
+    }
+
+    private static void homeViewportTaps() throws Exception {
+        CalculatorView view=view();
+        try {
+            RectF lcd=new PhysicalKeyLayout(1).displayBounds(420,933);
+            Method bounds=CalculatorView.class.getDeclaredMethod("homeCardBounds",RectF.class,int.class,RectF.class);
+            bounds.setAccessible(true);
+            for(int page=0;page<2;page++)for(int slot=0;slot<6;slot++) {
+                key(view,CnCwKey.HOME);
+                if(page==1)key(view,CnCwKey.PAGE_DOWN);
+                if(slot>=state(view).homeVisibleItems().size())continue;
+                String expected=state(view).homeVisibleItems().get(slot).id();
+                RectF card=new RectF();bounds.invoke(view,lcd,slot,card);
+                touch(view,MotionEvent.ACTION_DOWN,card.centerX(),card.centerY());
+                touch(view,MotionEvent.ACTION_UP,card.centerX(),card.centerY());
+                check(state(view).application()!=null&&state(view).application().name().equals(expected),"wrong home item "+expected);
+            }
+        } finally {view.onDetachedFromWindow();Handler.reset();}
     }
 
     private static void errorIsNotScientific() throws Exception {

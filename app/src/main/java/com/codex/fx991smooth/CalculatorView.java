@@ -68,6 +68,10 @@ public final class CalculatorView extends View {
     private CnCwCursorPath lastDragSemantic;
     /** -1 = left handle, 0 = choose from drag direction, +1 = right handle. */
     private int selectionDragEdge;
+    private int homePointerId = -1;
+    private int pressedHomeIndex = -1;
+    private int pressedHomeViewport;
+    private float homeDownX, homeDownY;
     private boolean selectionTapCandidate;
     private static final int BODY_EDGE = Color.rgb(48, 55, 52);
     /* A warm neutral shell keeps the calculator from looking washed out while
@@ -272,24 +276,12 @@ public final class CalculatorView extends View {
         drawStatusBar(canvas, lcd, "");
         List<CnCwCommand> allItems = state.homeItems();
         List<CnCwCommand> items = state.homeVisibleItems();
-        float contentTop = lcd.top + lcd.height() * 0.115f;
-        float outer = dp(4.5f);
-        float columnGap = dp(4f);
-        float rowGap = dp(5f);
-        int columns = 3;
-        int rows = 2;
         int start = state.homeViewportStart();
         int visibleCount = items.size();
-        float cellWidth = (lcd.width() - outer * 2f - columnGap * (columns - 1)) / columns;
-        float cellHeight = (lcd.bottom - contentTop - outer * 2f - rowGap) / rows;
         float radius = dp(4.2f);
         for (int visibleIndex = 0; visibleIndex < items.size(); visibleIndex++) {
             int index = start + visibleIndex;
-            int row = visibleIndex / columns;
-            int column = visibleIndex % columns;
-            float left = lcd.left + outer + column * (cellWidth + columnGap);
-            float top = contentTop + outer + row * (cellHeight + rowGap);
-            scratch.set(left, top, left + cellWidth, top + cellHeight);
+            homeCardBounds(lcd, visibleIndex, scratch);
             boolean selected = index == state.selectedIndex();
 
             paint.setStyle(Paint.Style.FILL);
@@ -308,8 +300,33 @@ public final class CalculatorView extends View {
         }
         if (allItems.size() > visibleCount) {
             drawScrollBar(canvas, lcd, start, visibleCount, allItems.size(),
-                    contentTop + outer, lcd.bottom - outer);
+                    lcd.top + lcd.height() * 0.115f + dp(4.5f), lcd.bottom - dp(4.5f));
         }
+    }
+
+    private void homeCardBounds(RectF lcd, int slot, RectF out) {
+        float outer = dp(4.5f), columnGap = dp(4f), rowGap = dp(5f);
+        float contentTop = lcd.top + lcd.height() * 0.115f;
+        float width = (lcd.width() - outer * 2 - columnGap * 2) / 3;
+        float height = (lcd.bottom - contentTop - outer * 2 - rowGap) / 2;
+        float left = lcd.left + outer + (slot % 3) * (width + columnGap);
+        float top = contentTop + outer + (slot / 3) * (height + rowGap);
+        out.set(left, top, left + width, top + height);
+    }
+
+    private int homeItemAt(float x, float y) {
+        if (state.screen() != CnCwScreen.HOME) return -1;
+        RectF lcd = displayBounds(getWidth());
+        for (int slot = 0; slot < state.homeVisibleItems().size(); slot++) {
+            homeCardBounds(lcd, slot, scratch);
+            if (scratch.contains(x, y)) return state.homeViewportStart() + slot;
+        }
+        return -1;
+    }
+
+    private boolean isStructuredResultScreen() {
+        return state.screen().isApplication() && !state.applicationLanding()
+                && state.resultShown() && state.hasStructuredApplicationResult();
     }
 
     private void drawApplicationGlyph(Canvas canvas, String id, RectF cell, int color) {
@@ -412,13 +429,11 @@ public final class CalculatorView extends View {
         float available = lcd.width() - dp(12);
         CnCwModeEngine.ModeResult structuredResult = state.resultShown()
                 && state.hasStructuredApplicationResult() ? state.applicationResult() : null;
-        boolean tableResultShown = structuredResult != null
-                && structuredResult.layout() == CnCwModeEngine.ResultLayout.TABLE;
-        boolean showExpandedAnsProcess = !tableResultShown
+        boolean showExpandedAnsProcess = structuredResult == null
                 && state.resultShown()
                 && state.expression().contains("Ans")
                 && !machine.calculationProcessDisplay().isBlank();
-        if (!tableResultShown) {
+        if (structuredResult == null) {
             if (showExpandedAnsProcess) {
                 drawInspectionProcess(canvas, machine.calculationProcessDisplay(), lcd,
                         contentTop, contentBottom, available);
@@ -430,7 +445,7 @@ public final class CalculatorView extends View {
                 drawSelectionHandles(canvas, lcd, contentTop, contentBottom);
             }
         }
-        if (structuredResult != null) {
+        if (structuredResult != null && structuredResult.layout() != CnCwModeEngine.ResultLayout.TEXT) {
             drawStructuredApplicationResult(canvas, structuredResult, lcd,
                     contentTop, contentBottom, available);
         } else if (state.resultShown() && !state.result().isEmpty()) {
@@ -683,7 +698,7 @@ public final class CalculatorView extends View {
     private void drawKeyValueResult(Canvas canvas, CnCwModeEngine.ModeResult result,
                                     RectF lcd, float contentTop, float contentBottom,
                                     float available) {
-        float resultTop = contentTop + (contentBottom - contentTop) * 0.52f;
+        float resultTop = contentTop + dp(12f);
         paint.setColor(LCD_INK);
         paint.setTypeface(FACE_BOLD);
         paint.setTextAlign(Paint.Align.LEFT);
@@ -825,7 +840,7 @@ public final class CalculatorView extends View {
             drawKeyValueResult(canvas, result, lcd, contentTop, contentBottom, available);
             return;
         }
-        float resultTop = contentTop + (contentBottom - contentTop) * 0.48f;
+        float resultTop = contentTop + dp(12f);
         float gridBottom = result.items().isEmpty()
                 ? contentBottom - dp(2f) : contentBottom - dp(20f);
         float gridLeft = lcd.left + dp(14f);
@@ -1616,6 +1631,13 @@ public final class CalculatorView extends View {
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN) cancelGestures();
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN
                         && displayBounds(getWidth()).contains(event.getX(), event.getY())) {
+                    if (state.screen() == CnCwScreen.HOME) {
+                        homePointerId = pointerId;
+                        pressedHomeIndex = homeItemAt(event.getX(), event.getY());
+                        pressedHomeViewport = state.homeViewportStart();
+                        homeDownX = event.getX(); homeDownY = event.getY();
+                        return true;
+                    }
                     if (state.hasWorkflowInput() && !state.resultShown()) {
                         if (!selectWorkflowActionAt(event.getX(), event.getY())) {
                             selectWorkflowCellAt(event.getX(), event.getY());
@@ -1633,7 +1655,7 @@ public final class CalculatorView extends View {
                     lastDragCursor = state.cursor();
                     lastDragSemantic = state.semanticCursor();
 
-                    if (state.hasSelection()) {
+                    if (!isStructuredResultScreen() && state.hasSelection()) {
                         RectF lcd = displayBounds(getWidth());
                         float contentTop = lcd.top + lcd.height() * 0.145f;
                         float contentBottom = lcd.bottom - dp(3);
@@ -1682,8 +1704,8 @@ public final class CalculatorView extends View {
                         if (displayPressed) {
                             performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                             displayLongPressTriggered = true;
-                            if (state.resultShown() && state.hasAns()
-                                    && isResultBand(displayDownY)) {
+                            if (isStructuredResultScreen() || (state.resultShown() && state.hasAns()
+                                    && isResultBand(displayDownY))) {
                                 // A long-press on the lower result line must expose the
                                 // clipboard actions directly. Previously it tried to select
                                 // the expression above, making “复制 Ans” effectively unreachable.
@@ -1726,6 +1748,12 @@ public final class CalculatorView extends View {
                 return true;
             }
             case MotionEvent.ACTION_MOVE -> {
+                if (homePointerId >= 0) {
+                    int index = event.findPointerIndex(homePointerId);
+                    if (index < 0 || Math.abs(event.getX(index) - homeDownX) >= dp(10)
+                            || Math.abs(event.getY(index) - homeDownY) >= dp(10)) pressedHomeIndex = -1;
+                    return true;
+                }
                 if (displayPressed) {
                     int displayIndex = event.findPointerIndex(displayPointerId);
                     if (displayIndex < 0) return true;
@@ -1756,6 +1784,21 @@ public final class CalculatorView extends View {
                 // after a display finger has already left the screen.
                 touchRouter.pointerUp(pointerId);
                 if (pointerId == repeatingPointerId) stopKeyRepeat();
+                if (pointerId == homePointerId) {
+                    int index = pressedHomeIndex;
+                    homePointerId = -1; pressedHomeIndex = -1;
+                    if (index >= 0 && state.screen() == CnCwScreen.HOME
+                            && state.homeViewportStart() == pressedHomeViewport
+                            && homeItemAt(event.getX(actionIndex), event.getY(actionIndex)) == index
+                            && Math.abs(event.getX(actionIndex) - homeDownX) < dp(10)
+                            && Math.abs(event.getY(actionIndex) - homeDownY) < dp(10)) {
+                        invalidateEvaluation();
+                        state = machine.activateHomeItem(index);
+                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                        performClick(); postInvalidateOnAnimation();
+                    }
+                    return true;
+                }
                 if (displayPressed && pointerId == displayPointerId) {
                     displayPressed = false;
                     displayPointerId = -1;
@@ -1826,6 +1869,8 @@ public final class CalculatorView extends View {
 
     /** No delayed input is allowed to survive a lost gesture or inactive window. */
     private void cancelGestures() {
+        homePointerId = -1;
+        pressedHomeIndex = -1;
         displayPressed = false;
         displayPointerId = -1;
         displaySelectionMode = false;
@@ -1847,6 +1892,7 @@ public final class CalculatorView extends View {
     }
 
     private void moveCursorToDisplayPosition(float x, float y, boolean haptic) {
+        if (isStructuredResultScreen()) return;
         moveCursorAtomically(displaySemanticPosition(x, y), haptic);
     }
 
@@ -2117,8 +2163,8 @@ public final class CalculatorView extends View {
         boolean hasSelection = state.hasSelection();
         boolean hasAns = state.hasAns();
         List<String> actions = new ArrayList<>();
-        if (hasSelection) actions.add("复制选区");
-        actions.add("复制计算过程");
+        if (hasSelection && !isStructuredResultScreen()) actions.add("复制选区");
+        if (!isStructuredResultScreen()) actions.add("复制计算过程");
         actions.add("复制计算结果");
         if (hasAns) actions.add("复制 Ans");
         actions.add("粘贴");

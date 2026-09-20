@@ -846,6 +846,16 @@ public final class CnCwMachine {
         return state;
     }
 
+    /** Direct application selection from the currently visible HOME viewport. */
+    public CnCwUiState activateHomeItem(int index) {
+        if (poweredOn && screen == CnCwScreen.HOME && index >= 0 && index < model.applications().size()) {
+            selectedIndex = index;
+            openApplication(model.applications().get(index));
+            publish();
+        }
+        return state;
+    }
+
     private void handleHome(CnCwKey key) {
         int size = model.applications().size();
         selectedIndex = switch (key) {
