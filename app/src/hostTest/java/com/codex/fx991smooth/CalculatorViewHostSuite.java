@@ -33,6 +33,7 @@ public final class CalculatorViewHostSuite {
         run("result copy and return preserve workflow cells", CalculatorViewHostSuite::resultCopyAndReturn);
         run("home swipe cancel gap and focus loss do not activate", CalculatorViewHostSuite::homeCanceledTaps);
         run("all visible home slots use current viewport", CalculatorViewHostSuite::homeViewportTaps);
+        run("home six-card and four-card layouts stay balanced", CalculatorViewHostSuite::homeBalancedLayout);
         run("function table navigation survives read-only result screen", CalculatorViewHostSuite::tableResultNavigation);
         run("paste invalidates a queued result", CalculatorViewHostSuite::pasteInvalidates);
         run("paste rejects an already posted old result", CalculatorViewHostSuite::postedResultInvalidates);
@@ -179,6 +180,36 @@ public final class CalculatorViewHostSuite {
                 touch(view,MotionEvent.ACTION_DOWN,card.centerX(),card.centerY());
                 touch(view,MotionEvent.ACTION_UP,card.centerX(),card.centerY());
                 check(state(view).application()!=null&&state(view).application().name().equals(expected),"wrong home item "+expected);
+            }
+        } finally {view.onDetachedFromWindow();Handler.reset();}
+    }
+
+    private static void homeBalancedLayout() throws Exception {
+        CalculatorView view = view();
+        try {
+            RectF lcd = new PhysicalKeyLayout(1).displayBounds(420,933);
+            Method bounds = CalculatorView.class.getDeclaredMethod("homeCardBounds",RectF.class,int.class,RectF.class);
+            Method draw = CalculatorView.class.getDeclaredMethod("drawHomeScreen",android.graphics.Canvas.class,RectF.class);
+            bounds.setAccessible(true); draw.setAccessible(true);
+            key(view,CnCwKey.HOME);
+            for(int page=0;page<2;page++) {
+                int columns=page==0?3:2;
+                check(state(view).homeVisibleItems().size()==columns*2,"unexpected home count");
+                RectF first=new RectF(),last=new RectF(),below=new RectF();
+                bounds.invoke(view,lcd,0,first);bounds.invoke(view,lcd,columns-1,last);
+                bounds.invoke(view,lcd,columns,below);
+                check(Math.abs(first.left-lcd.left-(lcd.right-last.right))<.01f,"unequal outer margins");
+                check(first.right<last.left && first.bottom<below.top,"cards overlap");
+                check(Math.abs(first.left-below.left)<.01f,"rows misaligned");
+                android.graphics.Canvas canvas=new android.graphics.Canvas();draw.invoke(view,canvas,lcd);
+                check(canvas.texts.contains("应用")&&canvas.texts.contains((page+1)+" / 2"),"page header missing");
+                for(var item:state(view).homeVisibleItems())check(canvas.texts.contains(item.label()),"missing label "+item.label());
+                int selected=state(view).selectedIndex();
+                key(view,CnCwKey.DOWN);
+                check(state(view).selectedIndex()==selected+columns,"down disagrees with visible columns");
+                key(view,CnCwKey.UP);
+                check(state(view).selectedIndex()==selected,"up does not restore column");
+                key(view,CnCwKey.PAGE_DOWN);
             }
         } finally {view.onDetachedFromWindow();Handler.reset();}
     }

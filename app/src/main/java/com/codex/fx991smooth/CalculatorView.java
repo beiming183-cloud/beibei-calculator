@@ -274,44 +274,54 @@ public final class CalculatorView extends View {
     }
 
     private void drawHomeScreen(Canvas canvas, RectF lcd) {
-        drawStatusBar(canvas, lcd, "");
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(LCD_MID);
+        canvas.drawRect(lcd.left, lcd.top, lcd.right, lcd.top + lcd.height() * 0.09f, paint);
+        paint.setColor(LCD_DARK);
+        paint.setTypeface(FACE_MEDIUM);
+        paint.setTextSize(sp(10f));
+        paint.setTextAlign(Paint.Align.LEFT);
+        canvas.drawText("应用", lcd.left + dp(7),
+                centeredBaseline(lcd.top, lcd.top + lcd.height() * 0.09f), paint);
         List<CnCwCommand> allItems = state.homeItems();
         List<CnCwCommand> items = state.homeVisibleItems();
         int start = state.homeViewportStart();
-        int visibleCount = items.size();
-        float radius = dp(4.2f);
+        float radius = dp(7f);
+        paint.setTypeface(FACE_NORMAL);
+        paint.setTextAlign(Paint.Align.RIGHT);
+        paint.setTextSize(sp(9f));
+        paint.setColor(LCD_DARK);
+        canvas.drawText((start / 6 + 1) + " / " + ((allItems.size() + 5) / 6),
+                lcd.right - dp(7), centeredBaseline(lcd.top, lcd.top + lcd.height() * 0.09f), paint);
         for (int visibleIndex = 0; visibleIndex < items.size(); visibleIndex++) {
             int index = start + visibleIndex;
             homeCardBounds(lcd, visibleIndex, scratch);
             boolean selected = index == state.selectedIndex();
 
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.argb(selected ? 56 : 14, 22, 37, 31));
+            paint.setColor(Color.argb(selected ? 31 : 8, 22, 55, 42));
             canvas.drawRoundRect(scratch, radius, radius, paint);
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(selected ? 1.1f : 0.65f));
-            paint.setColor(Color.argb(selected ? 176 : 58, 22, 37, 31));
+            paint.setStrokeWidth(dp(selected ? 1.2f : 0.6f));
+            paint.setColor(Color.argb(selected ? 180 : 40, 22, 55, 42));
             canvas.drawRoundRect(scratch, radius, radius, paint);
             paint.setStyle(Paint.Style.FILL);
 
             drawApplicationGlyph(canvas, items.get(visibleIndex).id(), scratch, LCD_INK);
             drawFittedCentered(canvas, items.get(visibleIndex).label(), scratch.centerX(),
-                    scratch.bottom - dp(18f), scratch.bottom - dp(2.5f),
-                    sp(13.5f), scratch.width() * 0.88f, sp(10.5f), LCD_INK, FACE_MEDIUM);
-        }
-        if (allItems.size() > visibleCount) {
-            drawScrollBar(canvas, lcd, start, visibleCount, allItems.size(),
-                    lcd.top + lcd.height() * 0.115f + dp(4.5f), lcd.bottom - dp(4.5f));
+                    scratch.centerY() + dp(9), scratch.centerY() + dp(25),
+                    sp(12f), scratch.width() * 0.88f, sp(10.5f), LCD_INK, FACE_NORMAL);
         }
     }
 
     private void homeCardBounds(RectF lcd, int slot, RectF out) {
-        float outer = dp(4.5f), columnGap = dp(4f), rowGap = dp(5f);
+        float outer = dp(6f), columnGap = dp(6f), rowGap = dp(6f);
         float contentTop = lcd.top + lcd.height() * 0.115f;
-        float width = (lcd.width() - outer * 2 - columnGap * 2) / 3;
+        int columns = state.homeVisibleItems().size() <= 4 ? 2 : 3;
+        float width = (lcd.width() - outer * 2 - columnGap * (columns - 1)) / columns;
         float height = (lcd.bottom - contentTop - outer * 2 - rowGap) / 2;
-        float left = lcd.left + outer + (slot % 3) * (width + columnGap);
-        float top = contentTop + outer + (slot / 3) * (height + rowGap);
+        float left = lcd.left + outer + (slot % columns) * (width + columnGap);
+        float top = contentTop + outer + (slot / columns) * (height + rowGap);
         out.set(left, top, left + width, top + height);
     }
 
@@ -332,15 +342,19 @@ public final class CalculatorView extends View {
 
     private void drawApplicationGlyph(Canvas canvas, String id, RectF cell, int color) {
         float cx = cell.centerX();
-        float cy = cell.top + cell.height() * 0.38f;
-        float radius = Math.min(cell.width(), cell.height()) * 0.145f;
+        float cy = cell.centerY() - dp(10);
+        float radius = dp(11);
         paint.setColor(color);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(dp(1.2f));
+        paint.setStrokeWidth(dp(1.35f));
+        paint.setStrokeCap(Paint.Cap.ROUND);
         if ("CALCULATE".equals(id)) {
-            canvas.drawLine(cx - radius, cy, cx + radius, cy, paint);
-            canvas.drawLine(cx, cy - radius, cx, cy + radius, paint);
-            canvas.drawCircle(cx + radius * 1.45f, cy, dp(0.8f), paint);
+            canvas.drawRoundRect(cx-radius*1.2f,cy-radius*1.2f,cx+radius*1.2f,cy+radius*1.2f,dp(3),dp(3),paint);
+            canvas.drawLine(cx-radius*.65f,cy-radius*.55f,cx+radius*.65f,cy-radius*.55f,paint);
+            canvas.drawLine(cx-radius*.65f,cy+radius*.45f,cx-radius*.05f,cy+radius*.45f,paint);
+            canvas.drawLine(cx-radius*.35f,cy+radius*.15f,cx-radius*.35f,cy+radius*.75f,paint);
+            canvas.drawLine(cx+radius*.35f,cy+radius*.3f,cx+radius*.75f,cy+radius*.3f,paint);
+            canvas.drawLine(cx+radius*.35f,cy+radius*.65f,cx+radius*.75f,cy+radius*.65f,paint);
         } else if ("STATISTICS".equals(id) || "DISTRIBUTION".equals(id)) {
             canvas.drawLine(cx - radius * 1.5f, cy + radius, cx + radius * 1.5f, cy + radius, paint);
             canvas.drawRect(cx - radius * 1.2f, cy, cx - radius * 0.6f, cy + radius, paint);
@@ -352,28 +366,44 @@ public final class CalculatorView extends View {
             canvas.drawRect(cx - radius * 1.4f, cy - radius, cx + radius * 1.4f, cy + radius, paint);
             canvas.drawLine(cx, cy - radius, cx, cy + radius, paint);
             canvas.drawLine(cx - radius * 1.4f, cy, cx + radius * 1.4f, cy, paint);
-        } else if ("MATRIX".equals(id) || "VECTOR".equals(id)) {
-            iconPath.reset();
-            iconPath.moveTo(cx - radius, cy - radius);
-            iconPath.lineTo(cx - radius * 1.4f, cy - radius);
-            iconPath.lineTo(cx - radius * 1.4f, cy + radius);
-            iconPath.lineTo(cx - radius, cy + radius);
-            iconPath.moveTo(cx + radius, cy - radius);
-            iconPath.lineTo(cx + radius * 1.4f, cy - radius);
-            iconPath.lineTo(cx + radius * 1.4f, cy + radius);
-            iconPath.lineTo(cx + radius, cy + radius);
-            canvas.drawPath(iconPath, paint);
-            canvas.drawCircle(cx, cy, dp(1.3f), paint);
-        } else {
-            canvas.drawCircle(cx, cy, radius * 1.15f, paint);
+        } else if ("MATRIX".equals(id)) {
+            for (int side = -1; side <= 1; side += 2) {
+                float edge = cx + side * radius * 1.3f;
+                canvas.drawLine(edge, cy-radius, edge, cy+radius, paint);
+                canvas.drawLine(edge, cy-radius, edge-side*radius*.35f, cy-radius, paint);
+                canvas.drawLine(edge, cy+radius, edge-side*radius*.35f, cy+radius, paint);
+            }
             paint.setStyle(Paint.Style.FILL);
-            paint.setTypeface(FACE_BOLD);
-            paint.setTextSize(sp(7.5f));
+            for(int row=-1;row<=1;row+=2) for(int col=-1;col<=1;col+=2)
+                canvas.drawCircle(cx+col*radius*.45f,cy+row*radius*.5f,dp(1.5f),paint);
+        } else if ("VECTOR".equals(id) || "COMPLEX".equals(id)) {
+            canvas.drawLine(cx-radius,cy+radius,cx+radius*1.2f,cy+radius,paint);
+            canvas.drawLine(cx-radius,cy+radius,cx-radius,cy-radius*1.2f,paint);
+            canvas.drawLine(cx-radius,cy+radius,cx+radius*.8f,cy-radius*.8f,paint);
+            if ("VECTOR".equals(id)) {
+                canvas.drawLine(cx+radius*.8f,cy-radius*.8f,cx+radius*.1f,cy-radius*.8f,paint);
+                canvas.drawLine(cx+radius*.8f,cy-radius*.8f,cx+radius*.8f,cy-radius*.1f,paint);
+            } else {
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(cx+radius*.8f,cy-radius*.8f,dp(2),paint);
+            }
+        } else {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTypeface(FACE_MEDIUM);
+            paint.setTextSize(sp("BASE_N".equals(id) ? 15f : 20f));
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(id.substring(0, 1), cx,
+            String symbol = switch(id) {
+                case "BASE_N" -> "01";
+                case "EQUATION" -> "x =";
+                case "INEQUALITY" -> "x <";
+                case "RATIO" -> "a:b";
+                default -> "ƒ";
+            };
+            canvas.drawText(symbol, cx,
                     centeredBaseline(cy - radius, cy + radius), paint);
         }
         paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawMenuScreen(Canvas canvas, RectF lcd) {

@@ -858,11 +858,13 @@ public final class CnCwMachine {
 
     private void handleHome(CnCwKey key) {
         int size = model.applications().size();
+        int visible = Math.min(HOME_VIEWPORT_SIZE, size - (selectedIndex / HOME_VIEWPORT_SIZE) * HOME_VIEWPORT_SIZE);
+        int columns = visible <= 4 ? 2 : HOME_COLUMNS;
         selectedIndex = switch (key) {
             case LEFT -> wrap(selectedIndex - 1, size);
             case RIGHT -> wrap(selectedIndex + 1, size);
-            case UP -> wrap(selectedIndex - HOME_COLUMNS, size);
-            case DOWN -> wrap(selectedIndex + HOME_COLUMNS, size);
+            case UP -> wrap(selectedIndex - columns, size);
+            case DOWN -> wrap(selectedIndex + columns, size);
             case PAGE_UP -> wrap(selectedIndex - HOME_VIEWPORT_SIZE, size);
             case PAGE_DOWN -> wrap(selectedIndex + HOME_VIEWPORT_SIZE, size);
             default -> selectedIndex;
