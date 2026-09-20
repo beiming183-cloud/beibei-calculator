@@ -28,6 +28,7 @@ public final class CnCwAuditStateSuite {
         test("small imaginary display", this::smallImaginary);
         test("small application result display", this::smallApplicationResult);
         test("machine shared budget", this::sharedBudget);
+        test("core-owned scheduling intent", this::schedulingIntent);
         if (!failures.isEmpty()) throw new AssertionError(String.join("\n", failures));
         System.out.println("PASS " + checks + " audit state checks");
     }
@@ -171,6 +172,28 @@ public final class CnCwAuditStateSuite {
         finally { Thread.interrupted(); }
         check(canceled, "machine propagates cancellation rather than showing syntax error");
         near(2, m.state().ans(), "cancellation never replaces Ans");
+    }
+
+    private void schedulingIntent() {
+        CnCwMachine m = new CnCwMachine(CnCwModel.FX_991_CN_CW);
+        check(!m.requiresEvaluation(CnCwKey.OK), "HOME navigation is inline");
+        key(m, CnCwKey.OK);
+        check(!m.requiresEvaluation(CnCwKey.EXE), "empty input does not start worker");
+        m.pasteExpression("1+1");
+        for (CnCwKey execute : new CnCwKey[]{CnCwKey.OK, CnCwKey.ENTER, CnCwKey.EXE}) {
+            check(m.requiresEvaluation(execute), "nonempty calculation schedules " + execute);
+        }
+        check(!m.requiresEvaluation(CnCwKey.DIGIT_2), "digit is inline");
+        key(m, CnCwKey.SETTINGS);
+        check(!m.requiresEvaluation(CnCwKey.OK), "menu activation is inline");
+        key(m, CnCwKey.AC, CnCwKey.AC); m.pasteExpression("1/0"); key(m, CnCwKey.EXE);
+        check(m.state().calculationState().isError(), "setup error");
+        check(!m.requiresEvaluation(CnCwKey.OK), "error OK is inline");
+        check(!m.requiresEvaluation(CnCwKey.ENTER), "error ENTER is inline");
+        check(m.requiresEvaluation(CnCwKey.EXE), "error retry EXE evaluates");
+        CnCwMachine table = app(2); choose(table, "single");
+        check(!table.requiresEvaluation(CnCwKey.OK), "form next cell is inline");
+        check(table.requiresEvaluation(CnCwKey.EXE), "form EXE schedules validation/evaluation");
     }
 
     private void smallApplicationResult() {

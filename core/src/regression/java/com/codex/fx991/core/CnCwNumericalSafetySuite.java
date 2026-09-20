@@ -21,6 +21,32 @@ public final class CnCwNumericalSafetySuite {
     }
 
     private void run() {
+        test("real cubic roots have no invented imaginary component", () -> {
+            var roots = PolynomialEngine.roots(1, -6, 11, -6);
+            for (int i = 0; i < roots.size(); i++) {
+                near(i + 1, roots.get(i).real(), 1e-12);
+                near(0, roots.get(i).imaginary(), 0);
+            }
+        });
+        test("irrational real roots are classified in the engine", () -> {
+            var roots = PolynomialEngine.roots(1, 0, -2, -1);
+            for (var root : roots) near(0, root.imaginary(), 0);
+            near((-1 - Math.sqrt(5)) / -2, roots.get(2).real(), 1e-12);
+        });
+        test("quartic real-root result is clean without formatter truncation", () -> {
+            var result = com.codex.fx991.core.cw.CnCwModeEngine.evaluate(
+                    com.codex.fx991.core.mode.ApplicationMode.EQUATION, "polynomial",
+                    "1,-10,35,-50,24", ScalarExpressionEngine.EvaluationContext.standard());
+            for (var item : result.items()) require(!item.value().contains("i"));
+        });
+        test("small actual complex roots remain complex", () -> {
+            var roots = PolynomialEngine.roots(1, 0, 1e-26);
+            near(-1e-13, roots.get(0).imaginary(), 1e-28);
+            near(1e-13, roots.get(1).imaginary(), 1e-28);
+            var mixed = PolynomialEngine.roots(1, -2, 1e-12, -2e-12);
+            long complexCount = mixed.stream().filter(r -> r.imaginary() != 0.0).count();
+            require(complexCount == 2);
+        });
         test("positive polynomial without real roots", () -> require(
                 PolynomialEngine.solveInequality(PolynomialEngine.Relation.GREATER, 1, 0, 1).isAllReals()));
         test("negative polynomial without real roots", () -> require(

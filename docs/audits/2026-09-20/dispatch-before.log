@@ -1,0 +1,19 @@
+ע: ĳЩ�����ļ�ʹ�û򸲸����ѹ�ʱ�� API��
+ע: �й���ϸ��Ϣ, ��ʹ�� -Xlint:deprecation ���±��롣
+PASS OK is evaluated off the main thread
+PASS ENTER is evaluated off the main thread
+FAIL error OK dismisses inline before fast editing: java.lang.AssertionError: error dismissal was incorrectly queued
+PASS paste invalidates a queued result
+PASS paste rejects an already posted old result
+PASS touch cursor invalidates a queued result
+PASS touch selection invalidates a queued result
+PASS workflow cell selection invalidates a queued result
+PASS workflow OK advances synchronously before next input
+PASS crossed display/key release stops repeat
+PASS ordinary held key repeats only until release
+PASS focus loss stops repeat
+PASS focus loss cancels a queued calculation
+PASS detach stops repeat
+PASS reattached view can evaluate again
+Exception in thread "main" java.lang.AssertionError: 1 View regressions failed
+	at com.codex.fx991smooth.CalculatorViewHostSuite.main(CalculatorViewHostSuite.java:38)

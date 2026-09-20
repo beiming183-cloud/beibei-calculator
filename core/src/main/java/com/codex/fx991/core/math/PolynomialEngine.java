@@ -64,7 +64,8 @@ public final class PolynomialEngine {
         if (!converged) throw new CalculationException(CalculationError.TIMEOUT,
                 "Polynomial roots did not converge", 0);
         List<ComplexValue> result = new ArrayList<>();
-        for (ComplexValue root : roots) {
+        for (int index = 0; index < roots.length; index++) {
+            ComplexValue root = PolynomialRootRefiner.refine(exact, roots, index);
             requireRootResidual(normalized, root);
             result.add(root);
         }
@@ -178,7 +179,7 @@ public final class PolynomialEngine {
         double[] normalized = trimLeadingZeros(coefficients);
         List<Double> boundaries = new ArrayList<>();
         for (ComplexValue root : roots(normalized)) {
-            if (isRealBoundary(normalized, root)) {
+            if (root.imaginary() == 0.0) {
                 double value = root.real();
                 if (boundaries.isEmpty() || !sameBoundary(value, boundaries.get(boundaries.size() - 1))) {
                     boundaries.add(value);
@@ -216,16 +217,6 @@ public final class PolynomialEngine {
 
     private static boolean sameBoundary(double left, double right) {
         return Math.abs(left - right) <= 8.0 * Math.max(Math.ulp(left), Math.ulp(right));
-    }
-
-    private static boolean isRealBoundary(double[] coefficients, ComplexValue root) {
-        if (root.imaginary() == 0.0) return true;
-        if (Math.abs(root.imaginary()) > 1e-12 * Math.max(1.0, Math.abs(root.real()))) return false;
-        double scale = 0.0;
-        for (double coefficient : coefficients) scale = scale * Math.abs(root.real()) + Math.abs(coefficient);
-        // A tiny imaginary root of x^2 + epsilon is not a real zero: comparing
-        // against polynomial scale rather than an absolute epsilon catches it.
-        return Double.isFinite(scale) && Math.abs(evaluateReal(coefficients, root.real())) <= 1e-12 * scale;
     }
 
     public static double evaluateReal(double[] coefficients, double x) {

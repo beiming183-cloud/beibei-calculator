@@ -22,6 +22,8 @@ public final class CalculatorViewHostSuite {
     public static void main(String[] args) throws Exception {
         run("OK is evaluated off the main thread", () -> executionIsAsync(CnCwKey.OK));
         run("ENTER is evaluated off the main thread", () -> executionIsAsync(CnCwKey.ENTER));
+        run("error OK dismisses inline before fast editing", CalculatorViewHostSuite::errorOkStaysInline);
+        run("error text is not scientific notation", CalculatorViewHostSuite::errorIsNotScientific);
         run("paste invalidates a queued result", CalculatorViewHostSuite::pasteInvalidates);
         run("paste rejects an already posted old result", CalculatorViewHostSuite::postedResultInvalidates);
         run("touch cursor invalidates a queued result", CalculatorViewHostSuite::cursorInvalidates);
@@ -42,6 +44,24 @@ public final class CalculatorViewHostSuite {
         CalculatorView view = new CalculatorView(new Context());
         view.layout(0, 0, 420, 933);
         return view;
+    }
+
+    private static void errorIsNotScientific() throws Exception {
+        CalculatorView view = view();
+        try {
+            Method draw = CalculatorView.class.getDeclaredMethod("drawNaturalScientificResult",
+                    android.graphics.Canvas.class, String.class, RectF.class,
+                    float.class, float.class, float.class);
+            draw.setAccessible(true);
+            for (String value : new String[] { "Math ERROR", "Syntax ERROR", "TIMEOUT",
+                    "1Eoops", "NaNE3", "1E2i", "1+2E3", "InfinityE2" }) {
+                check(Boolean.FALSE.equals(draw.invoke(view, null, value,
+                        new RectF(0, 0, 400, 300), 0f, 300f, 380f)), value);
+            }
+        } finally {
+            view.onDetachedFromWindow();
+            Handler.reset();
+        }
     }
 
     private static Object field(CalculatorView view, String name) throws Exception {
@@ -124,6 +144,24 @@ public final class CalculatorViewHostSuite {
             release.countDown();
             view.onDetachedFromWindow();
             Handler.reset();
+        }
+    }
+
+    private static void errorOkStaysInline() throws Exception {
+        CalculatorView view = view();
+        CountDownLatch release = null;
+        try {
+            paste(view, "1/0"); key(view, CnCwKey.EXE); settle(view);
+            check(state(view).calculationState().isError(), "expected calculation error");
+            release = block(view);
+            key(view, CnCwKey.OK);
+            check(!state(view).calculationState().isError(), "error dismissal was incorrectly queued");
+            check(field(view, "pendingEvaluation") == null, "dismissal started an evaluation job");
+            key(view, CnCwKey.DIGIT_2);
+            check(!state(view).calculationState().isError(), "fast editing remains on error overlay");
+        } finally {
+            if (release != null) release.countDown();
+            view.onDetachedFromWindow(); Handler.reset();
         }
     }
 

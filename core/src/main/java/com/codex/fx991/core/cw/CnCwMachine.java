@@ -884,6 +884,18 @@ public final class CnCwMachine {
         }
     }
 
+    /**
+     * Read-only scheduling contract. The core owns command meaning; adapters
+     * must not guess from key labels whether OK dismisses, advances or evaluates.
+     */
+    public boolean requiresEvaluation(CnCwKey key) {
+        if (!poweredOn || !screen.isApplication() || applicationLanding || engineeringMode) return false;
+        if (key != CnCwKey.EXE && key != CnCwKey.OK && key != CnCwKey.ENTER) return false;
+        if (errorShown && (key == CnCwKey.OK || key == CnCwKey.ENTER)) return false;
+        if (workflowSession != null) return key == CnCwKey.EXE;
+        return !tokens.isEmpty();
+    }
+
     private void handleApplication(CnCwKey key) {
         if (errorShown) {
             switch (key) {

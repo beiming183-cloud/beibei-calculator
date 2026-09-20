@@ -49,6 +49,10 @@ import java.math.BigDecimal;
  * never be duplicated by crossed releases.</p>
  */
 public final class CalculatorView extends View {
+    private static final java.util.regex.Pattern SCI_MANTISSA =
+            java.util.regex.Pattern.compile("[+\\-−]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
+    private static final java.util.regex.Pattern SCI_EXPONENT =
+            java.util.regex.Pattern.compile("[+\\-−]?[0-9]+");
     private final android.os.Handler gestureHandler = new android.os.Handler();
     private Runnable displayLongPress;
     private Runnable keyRepeat;
@@ -1207,7 +1211,9 @@ public final class CalculatorView extends View {
         if (exponent.startsWith("(") && exponent.endsWith(")") && exponent.length() > 2) {
             exponent = exponent.substring(1, exponent.length() - 1);
         }
-        if (mantissa.isEmpty() || exponent.isEmpty()) return false;
+        // E inside an error message or a complex/expression result is not an exponent.
+        if (!SCI_MANTISSA.matcher(mantissa).matches()
+                || !SCI_EXPONENT.matcher(exponent).matches()) return false;
 
         float baseSize = sp(34f);
         float minBaseSize = sp(14f);
@@ -2213,12 +2219,7 @@ public final class CalculatorView extends View {
     private void dispatchKey(CnCwKey key) {
         if (handleTableResultNavigation(key)) return;
         long revision = invalidateEvaluation();
-        // Workflow OK/ENTER advances a cell; keep that edit synchronous so
-        // a quickly typed next digit cannot cancel the cell transition.
-        boolean execute = key == CnCwKey.EXE || (!state.hasWorkflowInput()
-                && (key == CnCwKey.OK || key == CnCwKey.ENTER));
-        if (execute && state.screen().isApplication()
-                && !state.applicationLanding()) {
+        if (machine.requiresEvaluation(key)) {
             CnCwMachine snapshot = machine.copyForEvaluation();
             evaluating = true;
             postInvalidateOnAnimation();
